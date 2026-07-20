@@ -1,0 +1,159 @@
+---
+- name: Populate AAP 2.5 with safe demo configuration and history
+  hosts: localhost
+  connection: local
+  gather_facts: false
+
+  vars_files:
+    - config/demo.yml
+
+  pre_tasks:
+    - name: Validate required bootstrap inputs
+      ansible.builtin.assert:
+        that:
+          - lookup('ansible.builtin.env', 'AAP_HOSTNAME') | length > 0
+          - lookup('ansible.builtin.env', 'AAP_USERNAME') | length > 0
+          - lookup('ansible.builtin.env', 'AAP_PASSWORD') | length > 0
+          - demo_scm_url is defined
+          - demo_scm_url | length > 0
+        fail_msg: >-
+          Export AAP_HOSTNAME, AAP_USERNAME, AAP_PASSWORD and pass
+          -e demo_scm_url=https://your.git.example/aap/aap25-demo-bootstrap.git
+
+  tasks:
+    - name: Create demo organizations through platform gateway
+      ansible.platform.organization:
+        name: "{{ item.name }}"
+        description: "{{ item.description }}"
+        state: present
+      loop: "{{ demo_organizations }}"
+      loop_control:
+        label: "{{ item.name }}"
+
+    - name: Create demo teams through platform gateway
+      ansible.platform.team:
+        name: "{{ item.name }}"
+        organization: "{{ item.organization }}"
+        description: "{{ item.description }}"
+        state: present
+      loop: "{{ demo_teams }}"
+      loop_control:
+        label: "{{ item.organization }} / {{ item.name }}"
+
+    - name: Create controller inventories
+      ansible.controller.inventory:
+        name: "{{ item.name }}"
+        organization: "{{ item.organization }}"
+        description: "{{ item.description }}"
+        variables: "{{ item.variables }}"
+        state: present
+      loop: "{{ demo_inventories }}"
+      loop_control:
+        label: "{{ item.organization }} / {{ item.name }}"
+
+    - name: Create synthetic hosts
+      ansible.controller.host:
+        name: "{{ item.name }}"
+        inventory: "{{ item.inventory }}"
+        description: "{{ item.description }}"
+        variables: "{{ item.variables }}"
+        enabled: true
+        state: present
+      loop: "{{ demo_hosts }}"
+      loop_control:
+        label: "{{ item.inventory }} / {{ item.name }}"
+
+    - name: Create inventory groups and host associations
+      ansible.controller.group:
+        name: "{{ item.name }}"
+        inventory: "{{ item.inventory }}"
+        description: "{{ item.description }}"
+        hosts: "{{ item.hosts }}"
+        variables: "{{ item.variables }}"
+        preserve_existing_hosts: false
+        state: present
+      loop: "{{ demo_groups }}"
+      loop_control:
+        label: "{{ item.inventory }} / {{ item.name }}"
+
+    - name: Create SCM projects and wait for successful synchronization
+      ansible.controller.project:
+        name: "{{ item.name }}"
+        organization: "{{ item.organization }}"
+        description: Demo content managed as code
+        scm_type: git
+        scm_url: "{{ demo_scm_url }}"
+        scm_branch: "{{ demo_scm_branch | default('main') }}"
+        scm_clean: true
+        scm_delete_on_update: true
+        scm_update_on_launch: true
+        wait: true
+        update_project: true
+        state: present
+      loop: "{{ demo_projects }}"
+      loop_control:
+        label: "{{ item.organization }} / {{ item.name }}"
+
+    - name: Create demo job templates
+      ansible.controller.job_template:
+        name: "{{ item.name }}"
+        organization: "{{ item.organization }}"
+        description: "{{ item.description }}"
+        job_type: run
+        inventory: "{{ item.inventory }}"
+        project: "{{ item.project }}"
+        playbook: "{{ item.playbook }}"
+        ask_variables_on_launch: true
+        survey_enabled: "{{ item.survey }}"
+        survey_spec: "{{ demo_change_survey if item.survey else omit }}"
+        verbosity: 0
+        state: present
+      loop: "{{ demo_job_templates }}"
+      loop_control:
+        label: "{{ item.organization }} / {{ item.name }}"
+      vars:
+        demo_change_survey:
+          name: Demo change request
+          description: Required metadata for the surveyed platform-change demo
+          spec:
+            - question_name: Change ticket
+              question_description: Synthetic change identifier
+              required: true
+              type: text
+              variable: change_ticket
+              min: 1
+              max: 64
+              default: DEMO-0001
+            - question_name: Change summary
+              question_description: Short human-readable description
+              required: true
+              type: text
+              variable: change_summary
+              min: 1
+              max: 200
+              default: Demonstrate AAP survey handling
+            - question_name: Requested environment
+              question_description: Select a synthetic target environment
+              required: true
+              type: multiplechoice
+              variable: requested_environment
+              choices:
+                - development
+                - test
+                - production
+              default: development
+
+    - name: Seed controller job history
+      ansible.controller.job_launch:
+        name: "{{ item.template }}"
+        organization: "{{ item.organization }}"
+        extra_vars: "{{ item.extra_vars }}"
+        wait: true
+        interval: 2
+        timeout: 300
+      loop: "{{ demo_seed_jobs }}"
+      loop_control:
+        label: "{{ item.organization }} / {{ item.template }}"
+      ignore_errors: "{{ item.expect_failure | default(false) }}"
+      tags:
+        - seed_history

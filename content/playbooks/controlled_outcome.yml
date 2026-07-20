@@ -1,0 +1,16 @@
+---
+- name: Generate a controlled success or failure
+  hosts: all
+  gather_facts: false
+  tasks:
+    - name: Show requested outcome
+      ansible.builtin.debug:
+        msg:
+          host: "{{ inventory_hostname }}"
+          demo_fail: "{{ demo_fail | default(false) | bool }}"
+          note: "{{ outcome_note | default('No note supplied') }}"
+
+    - name: Produce the intentional failure when requested
+      ansible.builtin.fail:
+        msg: Intentional demo failure requested; no real system was changed
+      when: demo_fail | default(false) | bool

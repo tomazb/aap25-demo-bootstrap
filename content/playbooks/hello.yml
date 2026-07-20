@@ -1,0 +1,12 @@
+---
+- name: Safe hello-world demo
+  hosts: all
+  gather_facts: false
+  tasks:
+    - name: Show synthetic host context
+      ansible.builtin.debug:
+        msg:
+          host: "{{ inventory_hostname }}"
+          role: "{{ demo_role | default('unspecified') }}"
+          site: "{{ demo_site | default('unspecified') }}"
+          message: "{{ demo_message | default('Hello from AAP 2.5') }}"

@@ -1,0 +1,21 @@
+---
+- name: Demonstrate surveyed change metadata
+  hosts: all
+  gather_facts: false
+  tasks:
+    - name: Validate required survey data
+      ansible.builtin.assert:
+        that:
+          - change_ticket | length > 0
+          - change_summary | length > 0
+          - requested_environment in ['development', 'test', 'production']
+        fail_msg: Required survey values are missing or invalid
+
+    - name: Display the synthetic change request
+      ansible.builtin.debug:
+        msg:
+          host: "{{ inventory_hostname }}"
+          change_ticket: "{{ change_ticket }}"
+          change_summary: "{{ change_summary }}"
+          requested_environment: "{{ requested_environment }}"
+          changed_real_systems: false

@@ -1,0 +1,197 @@
+---
+demo_organizations:
+  - name: Demo Linux
+    description: Safe Linux automation demonstrations
+  - name: Demo Network
+    description: Network automation demonstrations without real devices
+  - name: Demo Platform
+    description: Platform operations, surveys, workflows, and failure handling
+
+demo_teams:
+  - name: Demo Linux Operators
+    organization: Demo Linux
+    description: Operators for the Linux demo organization
+  - name: Demo Network Operators
+    organization: Demo Network
+    description: Operators for the network demo organization
+  - name: Demo Platform Operators
+    organization: Demo Platform
+    description: Operators for the platform demo organization
+
+demo_inventories:
+  - name: Demo Linux Inventory
+    organization: Demo Linux
+    description: Synthetic Linux inventory; every host uses a local connection
+    variables:
+      demo_environment: lab
+      demo_owner: linux-team
+  - name: Demo Network Inventory
+    organization: Demo Network
+    description: Synthetic network inventory; no real network devices are contacted
+    variables:
+      demo_environment: lab
+      demo_owner: network-team
+  - name: Demo Platform Inventory
+    organization: Demo Platform
+    description: Synthetic platform inventory for surveys and controlled outcomes
+    variables:
+      demo_environment: lab
+      demo_owner: platform-team
+
+demo_hosts:
+  - name: web01.demo
+    inventory: Demo Linux Inventory
+    description: Synthetic web node 1
+    variables:
+      ansible_connection: local
+      demo_role: web
+      demo_site: dc1
+  - name: web02.demo
+    inventory: Demo Linux Inventory
+    description: Synthetic web node 2
+    variables:
+      ansible_connection: local
+      demo_role: web
+      demo_site: dc2
+  - name: db01.demo
+    inventory: Demo Linux Inventory
+    description: Synthetic database node
+    variables:
+      ansible_connection: local
+      demo_role: database
+      demo_site: dc1
+  - name: edge01.demo
+    inventory: Demo Network Inventory
+    description: Synthetic edge router
+    variables:
+      ansible_connection: local
+      demo_role: edge-router
+      demo_site: dc1
+  - name: core01.demo
+    inventory: Demo Network Inventory
+    description: Synthetic core switch
+    variables:
+      ansible_connection: local
+      demo_role: core-switch
+      demo_site: dc1
+  - name: platform01.demo
+    inventory: Demo Platform Inventory
+    description: Synthetic platform endpoint
+    variables:
+      ansible_connection: local
+      demo_role: platform
+      demo_site: dc1
+
+demo_groups:
+  - name: web
+    inventory: Demo Linux Inventory
+    description: Web tier
+    hosts:
+      - web01.demo
+      - web02.demo
+    variables:
+      service_tier: frontend
+  - name: database
+    inventory: Demo Linux Inventory
+    description: Database tier
+    hosts:
+      - db01.demo
+    variables:
+      service_tier: data
+  - name: routers
+    inventory: Demo Network Inventory
+    description: Router role
+    hosts:
+      - edge01.demo
+    variables:
+      network_os_family: demo-router
+  - name: switches
+    inventory: Demo Network Inventory
+    description: Switch role
+    hosts:
+      - core01.demo
+    variables:
+      network_os_family: demo-switch
+  - name: platform
+    inventory: Demo Platform Inventory
+    description: Platform endpoints
+    hosts:
+      - platform01.demo
+    variables:
+      service_tier: platform
+
+demo_projects:
+  - name: Demo Linux Content
+    organization: Demo Linux
+  - name: Demo Network Content
+    organization: Demo Network
+  - name: Demo Platform Content
+    organization: Demo Platform
+
+demo_job_templates:
+  - name: Demo 01 - Linux hello
+    organization: Demo Linux
+    inventory: Demo Linux Inventory
+    project: Demo Linux Content
+    playbook: content/playbooks/hello.yml
+    description: Read-only hello-world run across synthetic Linux hosts
+    survey: false
+  - name: Demo 02 - Linux inventory report
+    organization: Demo Linux
+    inventory: Demo Linux Inventory
+    project: Demo Linux Content
+    playbook: content/playbooks/inventory_report.yml
+    description: Builds a host and group report using only controller inventory data
+    survey: false
+  - name: Demo 03 - Network discovery simulation
+    organization: Demo Network
+    inventory: Demo Network Inventory
+    project: Demo Network Content
+    playbook: content/playbooks/inventory_report.yml
+    description: Simulates network discovery without contacting network equipment
+    survey: false
+  - name: Demo 04 - Surveyed platform change
+    organization: Demo Platform
+    inventory: Demo Platform Inventory
+    project: Demo Platform Content
+    playbook: content/playbooks/surveyed_change.yml
+    description: Demonstrates a required survey and change-ticket metadata
+    survey: true
+  - name: Demo 05 - Controlled outcome
+    organization: Demo Platform
+    inventory: Demo Platform Inventory
+    project: Demo Platform Content
+    playbook: content/playbooks/controlled_outcome.yml
+    description: Produces either a successful or intentionally failed job
+    survey: false
+
+demo_seed_jobs:
+  - template: Demo 01 - Linux hello
+    organization: Demo Linux
+    extra_vars:
+      demo_message: First seeded Linux demo run
+  - template: Demo 02 - Linux inventory report
+    organization: Demo Linux
+    extra_vars:
+      report_id: DEMO-LINUX-001
+  - template: Demo 03 - Network discovery simulation
+    organization: Demo Network
+    extra_vars:
+      report_id: DEMO-NET-001
+  - template: Demo 04 - Surveyed platform change
+    organization: Demo Platform
+    extra_vars:
+      change_ticket: DEMO-0001
+      change_summary: Seeded platform change demonstration
+      requested_environment: development
+  - template: Demo 05 - Controlled outcome
+    organization: Demo Platform
+    extra_vars:
+      demo_fail: false
+      outcome_note: Seeded successful controlled run
+  - template: Demo 05 - Controlled outcome
+    organization: Demo Platform
+    expect_failure: true
+    extra_vars:
+      demo_fail: true
+      outcome_note: Seeded intentional failure for dashboard history

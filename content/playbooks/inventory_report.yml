@@ -1,0 +1,22 @@
+---
+- name: Build a safe inventory report
+  hosts: all
+  gather_facts: false
+  tasks:
+    - name: Emit per-host inventory metadata
+      ansible.builtin.debug:
+        msg:
+          report_id: "{{ report_id | default('DEMO-REPORT') }}"
+          host: "{{ inventory_hostname }}"
+          groups: "{{ group_names | sort }}"
+          role: "{{ demo_role | default('unspecified') }}"
+          site: "{{ demo_site | default('unspecified') }}"
+          owner: "{{ demo_owner | default('unspecified') }}"
+
+    - name: Publish aggregate demo statistics
+      ansible.builtin.set_stats:
+        data:
+          demo_report_id: "{{ report_id | default('DEMO-REPORT') }}"
+          demo_environment: "{{ demo_environment | default('lab') }}"
+        aggregate: true
+        per_host: false
