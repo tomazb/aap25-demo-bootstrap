@@ -18,6 +18,62 @@ demo_teams:
     organization: Demo Platform
     description: Operators for the platform demo organization
 
+# Demo users and RBAC ---------------------------------------------------------
+# Two synthetic local users per organization: one Team Admin (owner) and one
+# Team Member (operator). Each team receives admin rights on its own
+# organization's inventories, projects, and job templates, so every user only
+# sees and manages their own organization's demo content.
+#
+# Passwords are never stored in this file. Provide demo_user_password from an
+# Ansible Vault-encrypted file (see README section 4); it is applied to every
+# demo user. Set demo_create_users to false to skip local user creation
+# entirely (for example when teams map to an external IdP).
+demo_create_users: true
+
+demo_users:
+  - username: demo-alice
+    first_name: Alice
+    last_name: Linux
+    email: demo-alice@demo.example
+    organization: Demo Linux
+    team: Demo Linux Operators
+    team_role: Team Admin
+  - username: demo-bob
+    first_name: Bob
+    last_name: Linux
+    email: demo-bob@demo.example
+    organization: Demo Linux
+    team: Demo Linux Operators
+    team_role: Team Member
+  - username: demo-carol
+    first_name: Carol
+    last_name: Network
+    email: demo-carol@demo.example
+    organization: Demo Network
+    team: Demo Network Operators
+    team_role: Team Admin
+  - username: demo-dave
+    first_name: Dave
+    last_name: Network
+    email: demo-dave@demo.example
+    organization: Demo Network
+    team: Demo Network Operators
+    team_role: Team Member
+  - username: demo-erin
+    first_name: Erin
+    last_name: Platform
+    email: demo-erin@demo.example
+    organization: Demo Platform
+    team: Demo Platform Operators
+    team_role: Team Admin
+  - username: demo-frank
+    first_name: Frank
+    last_name: Platform
+    email: demo-frank@demo.example
+    organization: Demo Platform
+    team: Demo Platform Operators
+    team_role: Team Member
+
 demo_inventories:
   - name: Demo Linux Inventory
     organization: Demo Linux

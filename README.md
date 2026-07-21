@@ -3,6 +3,7 @@
 This repository populates a fresh Ansible Automation Platform 2.5 installation with:
 
 - three gateway-managed organizations and teams;
+- six local demo users (two per organization) with team-scoped RBAC, so every user manages only their own organization's content;
 - three controller inventories with synthetic hosts and groups;
 - three SCM projects pointing back to this repository;
 - five safe job templates, including a survey and a controlled failure;
@@ -43,12 +44,27 @@ export CONTROLLER_VERIFY_SSL="$AAP_VALIDATE_CERTS"
 
 For a private CA, install the CA trust on the bootstrap host instead of setting certificate validation to false.
 
-## 4. Run the bootstrap
+## 4. Provide the demo user password
+
+User passwords are never stored in this repository. Create a Vault-encrypted secrets file (the unencrypted file is gitignored):
+
+```bash
+cp config/secrets.example.yml config/secrets.yml
+vi config/secrets.yml                    # set demo_user_password
+ansible-vault encrypt config/secrets.yml
+```
+
+The same password is applied to all six demo users. Re-running the bootstrap does not rotate existing passwords (`update_secrets: false`); change passwords in the UI, or delete the users and re-run.
+
+To bootstrap without local users (for example when teams map to an external IdP), skip this section and pass `-e demo_create_users=false`. Team content roles are still assigned; only user creation and user role assignments are skipped.
+
+## 5. Run the bootstrap
 
 ```bash
 ansible-playbook bootstrap.yml \
   -e demo_scm_url='https://git.example.com/automation/aap25-demo-bootstrap.git' \
-  -e demo_scm_branch='main'
+  -e demo_scm_branch='main' \
+  -e @config/secrets.yml --ask-vault-pass
 ```
 
 Run it a second time. Configuration tasks should be idempotent; the final history-seeding task intentionally creates additional job runs each time.
@@ -58,20 +74,24 @@ To reapply configuration without creating more history:
 ```bash
 ansible-playbook bootstrap.yml \
   -e demo_scm_url='https://git.example.com/automation/aap25-demo-bootstrap.git' \
+  -e @config/secrets.yml --ask-vault-pass \
   --skip-tags seed_history
 ```
 
 The history task is tagged `seed_history`; omit that tag when you want configuration convergence without generating new job records.
 
-## 5. Post-bootstrap checks
+## 6. Post-bootstrap checks
 
 Verify in the unified UI:
 
 1. Access Management -> Organizations: `Demo Linux`, `Demo Network`, `Demo Platform`.
-2. Automation Execution -> Infrastructure -> Inventories: three demo inventories.
-3. Automation Execution -> Projects: three successful SCM project syncs.
-4. Automation Execution -> Templates: five demo job templates.
-5. Jobs: successful runs plus one intentional failed run.
+2. Access Management -> Users: `demo-alice`, `demo-bob`, `demo-carol`, `demo-dave`, `demo-erin`, `demo-frank`.
+3. Access Management -> Teams: three teams, each with one `Team Admin` and one `Team Member` user, and roles on their organization's content.
+4. Automation Execution -> Infrastructure -> Inventories: three demo inventories.
+5. Automation Execution -> Projects: three successful SCM project syncs.
+6. Automation Execution -> Templates: five demo job templates.
+7. Jobs: successful runs plus one intentional failed run.
+8. Log in as `demo-alice` (Demo Linux team admin): only the Demo Linux inventory, project, and templates are visible and manageable; the other two organizations' content is not.
 
 ## Security and lifecycle notes
 
@@ -79,4 +99,4 @@ Verify in the unified UI:
 - Do not copy project content into controller container filesystems.
 - Keep demo objects prefixed with `Demo` so they can be identified and removed.
 - Keep real secrets out of this repository. Add real credentials only through an approved secret-management workflow.
-- Teams are created without local demo users. Map them to your external identity provider groups, or create temporary users from an Ansible Vault-encrypted input file.
+- Demo users are local gateway accounts intended for throwaway demo environments. Their shared password comes only from the Vault-encrypted `config/secrets.yml`, which is gitignored. For production-like demos, disable local users (`-e demo_create_users=false`) and map the teams to your external identity provider groups instead.

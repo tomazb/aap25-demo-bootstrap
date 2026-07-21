@@ -40,6 +40,63 @@
       loop_control:
         label: "{{ item.organization }} / {{ item.name }}"
 
+    - name: Build organization to team name mapping for RBAC assignments
+      ansible.builtin.set_fact:
+        demo_team_by_org: "{{ demo_teams | items2dict(key_name='organization', value_name='name') }}"
+
+    - name: Create demo users and their role assignments
+      when: demo_create_users | default(true) | bool
+      tags:
+        - users
+      block:
+        - name: Validate demo user password input
+          ansible.builtin.assert:
+            that:
+              - demo_user_password is defined
+              - demo_user_password | length > 0
+              - demo_user_password != 'CHANGEME-demo-password'
+            fail_msg: >-
+              demo_user_password is required when demo_create_users is true and must not
+              keep the placeholder value from config/secrets.example.yml. Provide it
+              from an Ansible Vault-encrypted file: ansible-playbook bootstrap.yml
+              -e demo_scm_url=<url> -e @config/secrets.yml --ask-vault-pass
+              Or skip user creation with: -e demo_create_users=false
+
+        - name: Create demo users through platform gateway
+          ansible.platform.user:
+            username: "{{ item.username }}"
+            first_name: "{{ item.first_name }}"
+            last_name: "{{ item.last_name }}"
+            email: "{{ item.email }}"
+            password: "{{ demo_user_password }}"
+            update_secrets: false
+            state: present
+          loop: "{{ demo_users }}"
+          loop_control:
+            label: "{{ item.username }}"
+
+        - name: Add demo users as members of their organization
+          ansible.platform.role_user_assignment:
+            role_definition: Organization Member
+            user: "{{ item.username }}"
+            object_ids:
+              - "{{ item.organization }}"
+            state: present
+          loop: "{{ demo_users }}"
+          loop_control:
+            label: "{{ item.username }} -> {{ item.organization }}"
+
+        - name: Assign demo users their team roles
+          ansible.platform.role_user_assignment:
+            role_definition: "{{ item.team_role }}"
+            user: "{{ item.username }}"
+            object_ids:
+              - "{{ item.team }}"
+            state: present
+          loop: "{{ demo_users }}"
+          loop_control:
+            label: "{{ item.username }} -> {{ item.team }} ({{ item.team_role }})"
+
     - name: Create controller inventories
       ansible.controller.inventory:
         name: "{{ item.name }}"
@@ -50,6 +107,7 @@
       loop: "{{ demo_inventories }}"
       loop_control:
         label: "{{ item.organization }} / {{ item.name }}"
+      register: demo_inventory_creation
 
     - name: Create synthetic hosts
       ansible.controller.host:
@@ -93,6 +151,7 @@
       loop: "{{ demo_projects }}"
       loop_control:
         label: "{{ item.organization }} / {{ item.name }}"
+      register: demo_project_creation
 
     - name: Create demo job templates
       ansible.controller.job_template:
@@ -111,6 +170,7 @@
       loop: "{{ demo_job_templates }}"
       loop_control:
         label: "{{ item.organization }} / {{ item.name }}"
+      register: demo_job_template_creation
       vars:
         demo_change_survey:
           name: Demo change request
@@ -142,6 +202,42 @@
                 - test
                 - production
               default: development
+
+    - name: Grant teams admin rights on their organization inventories
+      ansible.controller.role_team_assignment:
+        role_definition: Inventory Admin
+        team: "{{ demo_team_by_org[item.item.organization] }}"
+        object_id: "{{ item.id }}"
+        state: present
+      loop: "{{ demo_inventory_creation.results }}"
+      loop_control:
+        label: "{{ item.item.organization }} / {{ item.item.name }}"
+      tags:
+        - rbac
+
+    - name: Grant teams admin rights on their organization projects
+      ansible.controller.role_team_assignment:
+        role_definition: Project Admin
+        team: "{{ demo_team_by_org[item.item.organization] }}"
+        object_id: "{{ item.id }}"
+        state: present
+      loop: "{{ demo_project_creation.results }}"
+      loop_control:
+        label: "{{ item.item.organization }} / {{ item.item.name }}"
+      tags:
+        - rbac
+
+    - name: Grant teams admin rights on their organization job templates
+      ansible.controller.role_team_assignment:
+        role_definition: JobTemplate Admin
+        team: "{{ demo_team_by_org[item.item.organization] }}"
+        object_id: "{{ item.id }}"
+        state: present
+      loop: "{{ demo_job_template_creation.results }}"
+      loop_control:
+        label: "{{ item.item.organization }} / {{ item.item.name }}"
+      tags:
+        - rbac
 
     - name: Seed controller job history
       ansible.controller.job_launch:
