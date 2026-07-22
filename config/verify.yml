@@ -1,0 +1,169 @@
+---
+# Configuration for the migration verification playbooks
+# (verify_parity.yml, verify_functional.yml). See README section
+# "Migration verification".
+
+verify_report_dir: reports
+
+# parity_fail_on controls the exit code (the report always lists everything):
+#   missing : fail when a source object is absent on the target
+#             (field mismatches are reported but do not fail)
+#   drift   : fail on missing objects OR field mismatches
+#   none    : tolerate all content differences
+# Operational errors (API/transport failures, missing/invalid fixtures,
+# pagination truncation, duplicate normalized keys) ALWAYS fail, in every mode.
+parity_fail_on: missing
+parity_max_pages: 100
+
+# Object types compared by verify_parity.yml.
+#
+# Source is AAP 2.5 RPM with the automation gateway; target is AAP 2.5 on
+# OpenShift. Identity/access objects (organizations, users, teams) are read
+# from the gateway route on both sides; automation objects are read from the
+# controller route. Disable a type with enabled: false.
+#
+# Keys are organization-qualified for org-scoped resources so two objects with
+# the same name in different organizations stay distinct (a name-only key would
+# collapse them and hide a missing object). summary_fields.organization.name is
+# the well-established controller (DRF/AWX) shape. Where a shape is not verified
+# against a real AAP 2.5 response it is called out inline.
+parity_types:
+  organizations:
+    enabled: true
+    source_path: /api/gateway/v1/organizations/?page_size=200
+    target_path: /api/gateway/v1/organizations/?page_size=200
+    key: name
+  users:
+    enabled: true
+    source_path: /api/gateway/v1/users/?page_size=200
+    target_path: /api/gateway/v1/users/?page_size=200
+    key: username
+    fields:
+      is_superuser: is_superuser
+  teams:
+    enabled: true
+    source_path: /api/gateway/v1/teams/?page_size=200
+    target_path: /api/gateway/v1/teams/?page_size=200
+    # NOTE: confirm the gateway team organization field path against a real
+    # AAP 2.5 gateway response. If summary_fields.organization.name is absent
+    # the org qualifier degrades to empty (name-only) rather than failing.
+    key:
+      - summary_fields.organization.name
+      - name
+  credentials:
+    enabled: true
+    source_path: /api/controller/v2/credentials/?page_size=200
+    target_path: /api/controller/v2/credentials/?page_size=200
+    key:
+      - summary_fields.organization.name
+      - name
+    fields:
+      credential_type: summary_fields.credential_type.name
+  projects:
+    enabled: true
+    source_path: /api/controller/v2/projects/?page_size=200
+    target_path: /api/controller/v2/projects/?page_size=200
+    key:
+      - summary_fields.organization.name
+      - name
+    fields:
+      scm_type: scm_type
+      scm_url: scm_url
+      scm_branch: scm_branch
+  inventories:
+    enabled: true
+    source_path: /api/controller/v2/inventories/?page_size=200
+    target_path: /api/controller/v2/inventories/?page_size=200
+    key:
+      - summary_fields.organization.name
+      - name
+    fields:
+      kind: kind
+  hosts:
+    enabled: true
+    source_path: /api/controller/v2/hosts/?page_size=200
+    target_path: /api/controller/v2/hosts/?page_size=200
+    key:
+      - summary_fields.inventory.name
+      - name
+    exclude:
+      summary_fields.inventory.kind: [smart, constructed]
+  job_templates:
+    enabled: true
+    source_path: /api/controller/v2/job_templates/?page_size=200
+    target_path: /api/controller/v2/job_templates/?page_size=200
+    key:
+      - summary_fields.organization.name
+      - name
+    fields:
+      playbook: playbook
+      project: summary_fields.project.name
+  workflow_job_templates:
+    enabled: true
+    source_path: /api/controller/v2/workflow_job_templates/?page_size=200
+    target_path: /api/controller/v2/workflow_job_templates/?page_size=200
+    key:
+      - summary_fields.organization.name
+      - name
+  schedules:
+    enabled: true
+    source_path: /api/controller/v2/schedules/?page_size=200
+    target_path: /api/controller/v2/schedules/?page_size=200
+    # Parent unified job template + schedule name. The parent org is not
+    # directly on the schedule row; JT-name + schedule-name is sufficient to
+    # keep schedules distinct across templates.
+    key:
+      - summary_fields.unified_job_template.name
+      - name
+    fields:
+      enabled: enabled
+  notification_templates:
+    enabled: true
+    source_path: /api/controller/v2/notification_templates/?page_size=200
+    target_path: /api/controller/v2/notification_templates/?page_size=200
+    key:
+      - summary_fields.organization.name
+      - name
+    fields:
+      notification_type: notification_type
+  execution_environments:
+    enabled: true
+    source_path: /api/controller/v2/execution_environments/?page_size=200
+    target_path: /api/controller/v2/execution_environments/?page_size=200
+    # Global EEs have a null organization; the org qualifier renders empty and
+    # the (unique) EE name keeps them distinct.
+    key:
+      - summary_fields.organization.name
+      - name
+    fields:
+      image: image
+  labels:
+    enabled: true
+    source_path: /api/controller/v2/labels/?page_size=200
+    target_path: /api/controller/v2/labels/?page_size=200
+    key:
+      - summary_fields.organization.name
+      - name
+
+# Gateway RBAC role assignments and AD authenticator maps are deliberately NOT
+# compared here: their AAP 2.5 API shapes are not verified against real
+# fixtures. They are tracked as disabled-by-default Phase 2 work.
+
+# Layer 3: curated, per-migration functional checks. Empty by default. With
+# functional_allow_empty=false (default) an empty list reports NOT_RUN and
+# exits non-zero; pass -e functional_allow_empty=true to exit 0 for dev.
+# Supported types:
+#   - type: job_template      # launches and waits; success required
+#     name: My migrated JT
+#     organization: My Org
+#     job_type: run           # or check
+#     limit: ""               # optional
+#     extra_vars: {}          # optional (values are not printed to the report)
+#   - type: project_update    # sync + wait; proves SCM credential decrypt
+#     name: My migrated project
+#     organization: My Org
+#   - type: notification_test # fires test notification, polls for success
+#     name: My notifier
+#     organization: My Org
+functional_allow_empty: false
+functional_checks: []

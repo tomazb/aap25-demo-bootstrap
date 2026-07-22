@@ -1,0 +1,87 @@
+---
+- name: Remove all demo content created by bootstrap.yml
+  hosts: localhost
+  connection: local
+  gather_facts: false
+
+  vars_files:
+    - config/demo.yml
+
+  vars:
+    aap_bootstrap_hostname: "{{ lookup('ansible.builtin.env', 'AAP_HOSTNAME') }}"
+    aap_bootstrap_username: "{{ lookup('ansible.builtin.env', 'AAP_USERNAME') }}"
+    aap_bootstrap_password: "{{ lookup('ansible.builtin.env', 'AAP_PASSWORD') }}"
+    aap_bootstrap_validate_certs: >-
+      {{ (lookup('ansible.builtin.env', 'AAP_VALIDATE_CERTS') or 'true') | bool }}
+
+  module_defaults:
+    group/ansible.controller.controller:
+      controller_host: "{{ aap_bootstrap_hostname }}"
+      controller_username: "{{ aap_bootstrap_username }}"
+      controller_password: "{{ aap_bootstrap_password }}"
+      validate_certs: "{{ aap_bootstrap_validate_certs }}"
+
+  pre_tasks:
+    - name: Validate required inputs
+      ansible.builtin.assert:
+        that:
+          - lookup('ansible.builtin.env', 'AAP_HOSTNAME') | length > 0
+          - lookup('ansible.builtin.env', 'AAP_USERNAME') | length > 0
+          - lookup('ansible.builtin.env', 'AAP_PASSWORD') | length > 0
+        fail_msg: Export AAP_HOSTNAME, AAP_USERNAME and AAP_PASSWORD first.
+
+  tasks:
+    # Strict reverse dependency order relative to bootstrap.yml. Job
+    # history of deleted templates remains visible in the controller by
+    # design.
+    - name: Remove demo job templates
+      ansible.controller.job_template:
+        name: "{{ item.name }}"
+        organization: "{{ item.organization }}"
+        state: absent
+      loop: "{{ demo_job_templates }}"
+      loop_control:
+        label: "{{ item.organization }} / {{ item.name }}"
+
+    - name: Remove demo projects
+      ansible.controller.project:
+        name: "{{ item.name }}"
+        organization: "{{ item.organization }}"
+        state: absent
+      loop: "{{ demo_projects }}"
+      loop_control:
+        label: "{{ item.organization }} / {{ item.name }}"
+
+    - name: Remove demo inventories (hosts and groups are removed with them)
+      ansible.controller.inventory:
+        name: "{{ item.name }}"
+        organization: "{{ item.organization }}"
+        state: absent
+      loop: "{{ demo_inventories }}"
+      loop_control:
+        label: "{{ item.organization }} / {{ item.name }}"
+
+    - name: Remove demo users
+      ansible.platform.user:
+        username: "{{ item.username }}"
+        state: absent
+      loop: "{{ demo_users }}"
+      loop_control:
+        label: "{{ item.username }}"
+
+    - name: Remove demo teams
+      ansible.platform.team:
+        name: "{{ item.name }}"
+        organization: "{{ item.organization }}"
+        state: absent
+      loop: "{{ demo_teams }}"
+      loop_control:
+        label: "{{ item.organization }} / {{ item.name }}"
+
+    - name: Remove demo organizations
+      ansible.platform.organization:
+        name: "{{ item.name }}"
+        state: absent
+      loop: "{{ demo_organizations }}"
+      loop_control:
+        label: "{{ item.name }}"

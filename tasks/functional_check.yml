@@ -1,0 +1,125 @@
+---
+# Run one functional check. check = one functional_checks entry.
+- name: "job_template: {{ check.name }}"
+  when: check.type == 'job_template'
+  block:
+    - name: "Launch {{ check.name }}"
+      ansible.controller.job_launch:
+        name: "{{ check.name }}"
+        organization: "{{ check.organization }}"
+        job_type: "{{ check.job_type | default('run') }}"
+        limit: "{{ check.limit | default(omit) }}"
+        extra_vars: "{{ check.extra_vars | default(omit) }}"
+        wait: true
+        interval: 5
+        timeout: "{{ check.timeout | default(600) }}"
+      register: functional_job
+
+    - name: "Record job_template success: {{ check.name }}"
+      ansible.builtin.set_fact:
+        functional_passed: >-
+          {{ functional_passed + ['job_template ' ~ check.name
+             ~ ' (job id ' ~ functional_job.id | default('n/a') ~ ')'] }}
+  rescue:
+    - name: "Record job_template failure: {{ check.name }}"
+      ansible.builtin.set_fact:
+        functional_failures: >-
+          {{ functional_failures + ['job_template ' ~ check.name ~ ' failed'] }}
+
+- name: "project_update: {{ check.name }}"
+  when: check.type == 'project_update'
+  block:
+    - name: "Sync {{ check.name }}"
+      ansible.controller.project_update:
+        project: "{{ check.name }}"
+        organization: "{{ check.organization | default(omit) }}"
+        wait: true
+        timeout: "{{ check.timeout | default(600) }}"
+      register: functional_sync
+
+    - name: "Record project_update success: {{ check.name }}"
+      ansible.builtin.set_fact:
+        functional_passed: "{{ functional_passed + ['project_update ' ~ check.name] }}"
+  rescue:
+    - name: "Record project_update failure: {{ check.name }}"
+      ansible.builtin.set_fact:
+        functional_failures: >-
+          {{ functional_failures + ['project_update ' ~ check.name ~ ' failed'] }}
+
+- name: "notification_test: {{ check.name }}"
+  when: check.type == 'notification_test'
+  block:
+    - name: "Look up notification template {{ check.name }}"
+      ansible.builtin.uri:
+        url: >-
+          {{ aap_hostname }}/api/controller/v2/notification_templates/?name={{
+          check.name | urlencode }}
+        url_username: "{{ aap_username }}"
+        url_password: "{{ aap_password }}"
+        force_basic_auth: true
+        validate_certs: "{{ aap_validate_certs }}"
+        return_content: true
+        status_code: [200]
+      register: functional_nt
+
+    - name: "Resolve org-scoped notification template {{ check.name }}"
+      ansible.builtin.set_fact:
+        functional_nt_matches: >-
+          {{ (functional_nt.json.results | default([]))
+             | selectattr('summary_fields.organization.name', 'equalto',
+                          check.organization) | list }}
+
+    - name: "Require exactly one notification template match"
+      ansible.builtin.assert:
+        that:
+          - (functional_nt_matches | length) == 1
+        fail_msg: >-
+          Expected exactly one notification template named
+          '{{ check.name }}' in organization '{{ check.organization }}',
+          found {{ functional_nt_matches | length }}.
+
+    - name: "Fire test notification for {{ check.name }}"
+      ansible.builtin.uri:
+        url: >-
+          {{ aap_hostname }}/api/controller/v2/notification_templates/{{
+          functional_nt_matches[0].id }}/test/
+        method: POST
+        url_username: "{{ aap_username }}"
+        url_password: "{{ aap_password }}"
+        force_basic_auth: true
+        validate_certs: "{{ aap_validate_certs }}"
+        status_code: [202]
+        return_content: true
+      register: functional_nt_fire
+
+    - name: "Wait for test notification result for {{ check.name }}"
+      ansible.builtin.uri:
+        url: >-
+          {{ aap_hostname }}/api/controller/v2/notifications/{{
+          functional_nt_fire.json.id }}/
+        url_username: "{{ aap_username }}"
+        url_password: "{{ aap_password }}"
+        force_basic_auth: true
+        validate_certs: "{{ aap_validate_certs }}"
+        return_content: true
+      register: functional_nt_result
+      until: functional_nt_result.json.status in ['successful', 'failed']
+      retries: 30
+      delay: 2
+      failed_when: functional_nt_result.json.status != 'successful'
+
+    - name: "Record notification success: {{ check.name }}"
+      ansible.builtin.set_fact:
+        functional_passed: "{{ functional_passed + ['notification_test ' ~ check.name] }}"
+  rescue:
+    - name: "Record notification failure: {{ check.name }}"
+      ansible.builtin.set_fact:
+        functional_failures: >-
+          {{ functional_failures + ['notification_test ' ~ check.name ~ ' failed'] }}
+
+- name: "Unknown check type: {{ check.type }}"
+  ansible.builtin.set_fact:
+    functional_failures: >-
+      {{ functional_failures + ['unknown check type: ' ~ check.type
+         ~ ' (' ~ check.name | default('unnamed') ~ ')'] }}
+  when: check.type not in ['job_template', 'project_update', 'notification_test']
