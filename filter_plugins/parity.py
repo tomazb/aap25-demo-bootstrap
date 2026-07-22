@@ -3,6 +3,50 @@
 Pure functions; no Ansible imports so they are unit-testable with pytest.
 """
 
+from urllib.parse import urlsplit, urlunsplit
+
+
+def resolve_pagination_url(trusted_host, next_value):
+    """Return an absolute URL whose scheme/host/port always come from
+    trusted_host, using only the path and query of next_value.
+
+    The API's pagination ``next`` link is untrusted input: on AAP it is a
+    full absolute URL, and following it verbatim while sending Basic
+    credentials could leak them to another origin. This helper keeps the
+    origin pinned to trusted_host and forwards only path+query.
+
+    - Empty string or None -> "".
+    - A relative path is joined to trusted_host.
+    - An absolute next URL contributes only its path and query.
+    - Credentials embedded in either value are never propagated.
+    - Unsupported/malformed schemes raise ValueError.
+    - Query strings are preserved exactly.
+    """
+    if not next_value:
+        return ""
+    # Coerce away any Ansible lazy-template proxy so urlsplit parses correctly.
+    trusted_host = str(trusted_host)
+    next_value = str(next_value)
+    th = urlsplit(trusted_host)
+    if th.scheme not in ("http", "https") or not th.hostname:
+        raise ValueError(
+            "trusted_host must be an absolute http(s) URL, got %r" % (trusted_host,))
+    nv = urlsplit(next_value)
+    if nv.scheme and nv.scheme not in ("http", "https"):
+        raise ValueError(
+            "unsupported scheme in pagination link: %r" % (nv.scheme,))
+    # Origin is always taken from trusted_host; hostname/port only (drop creds).
+    netloc = th.hostname
+    if th.port:
+        netloc = "%s:%d" % (th.hostname, th.port)
+    path = nv.path or "/"
+    if not path.startswith("/"):
+        path = "/" + path
+    # Collapse duplicate slashes in the path only (never in the query).
+    while "//" in path:
+        path = path.replace("//", "/")
+    return urlunsplit((th.scheme, netloc, path, nv.query, ""))
+
 
 def _get(row, dotted_path):
     cur = row
@@ -87,6 +131,7 @@ def parity_report(results, meta):
 class FilterModule(object):
     def filters(self):
         return {
+            "resolve_pagination_url": resolve_pagination_url,
             "normalize_objects": normalize_objects,
             "parity_diff": parity_diff,
             "parity_report": parity_report,

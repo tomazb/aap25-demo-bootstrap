@@ -1,0 +1,110 @@
+---
+# Drives tasks/paginated_get.yml against the local paginator_server.py to
+# prove pagination behaviour offline. Requires -e pg_base=http://127.0.0.1:PORT
+- name: Pagination integration probe
+  hosts: localhost
+  connection: local
+  gather_facts: false
+  vars:
+    parity_max_pages: 2
+
+  tasks:
+    - name: Set shared connection facts
+      ansible.builtin.set_fact:
+        pg_host: "{{ pg_base }}"
+        pg_user: probe-user
+        pg_password: Pr0be-Pass-No-Overlap
+        pg_validate_certs: false
+
+    - name: Scenario two-page absolute-next
+      block:
+        - ansible.builtin.set_fact:
+            pg_results: []
+            pg_next: "/twopage/"
+            pg_pages: 0
+            pg_error: ""
+            pg_truncated: false
+        - ansible.builtin.include_tasks: ../tasks/paginated_get.yml
+        - name: Assert two-page absolute-next collected all rows, no error
+          ansible.builtin.assert:
+            that:
+              - pg_error | length == 0
+              - not pg_truncated
+              - pg_results | length == 2
+              - pg_pages | int == 2
+
+    - name: Scenario relative-next
+      block:
+        - ansible.builtin.set_fact:
+            pg_results: []
+            pg_next: "/relnext/"
+            pg_pages: 0
+            pg_error: ""
+            pg_truncated: false
+        - ansible.builtin.include_tasks: ../tasks/paginated_get.yml
+        - name: Assert relative-next collected all rows
+          ansible.builtin.assert:
+            that:
+              - pg_error | length == 0
+              - pg_results | length == 2
+
+    - name: Scenario 401 error is captured, not fatal
+      block:
+        - ansible.builtin.set_fact:
+            pg_results: []
+            pg_next: "/err401/"
+            pg_pages: 0
+            pg_error: ""
+            pg_truncated: false
+        - ansible.builtin.include_tasks: ../tasks/paginated_get.yml
+        - name: Assert 401 recorded as error
+          ansible.builtin.assert:
+            that:
+              - pg_error | length > 0
+              - "'401' in pg_error"
+              - pg_results | length == 0
+
+    - name: Scenario 500 error is captured
+      block:
+        - ansible.builtin.set_fact:
+            pg_results: []
+            pg_next: "/err500/"
+            pg_pages: 0
+            pg_error: ""
+            pg_truncated: false
+        - ansible.builtin.include_tasks: ../tasks/paginated_get.yml
+        - name: Assert 500 recorded as error
+          ansible.builtin.assert:
+            that:
+              - pg_error | length > 0
+              - "'500' in pg_error"
+
+    - name: Scenario malformed JSON is captured
+      block:
+        - ansible.builtin.set_fact:
+            pg_results: []
+            pg_next: "/badjson/"
+            pg_pages: 0
+            pg_error: ""
+            pg_truncated: false
+        - ansible.builtin.include_tasks: ../tasks/paginated_get.yml
+        - name: Assert malformed JSON recorded as error
+          ansible.builtin.assert:
+            that:
+              - pg_error | length > 0
+
+    - name: Scenario page-cap truncation is flagged
+      block:
+        - ansible.builtin.set_fact:
+            pg_results: []
+            pg_next: "/cap/"
+            pg_pages: 0
+            pg_error: ""
+            pg_truncated: false
+        - ansible.builtin.include_tasks: ../tasks/paginated_get.yml
+        - name: Assert truncation flagged at page cap
+          ansible.builtin.assert:
+            that:
+              - pg_error | length == 0
+              - pg_truncated
+              - pg_pages | int == 2

@@ -1,9 +1,22 @@
 ---
-# Follow API pagination, accumulating rows into pg_results.
-# Caller must set_fact first: pg_results: [], pg_next: "{{ pg_path }}", pg_pages: 0
+# Follow API pagination safely, accumulating rows into pg_results.
+#
+# Caller MUST set these as FACTS before the first include (facts, not include
+# vars, so they survive the recursive self-include below):
+#   pg_results: []          # accumulated rows
+#   pg_next: "<path>"       # first request path, e.g. /api/v2/x/?page_size=200
+#   pg_pages: 0             # pages fetched so far
+#   pg_error: ""            # non-empty => an operational failure occurred
+#   pg_truncated: false     # true => stopped at parity_max_pages with more left
+#   pg_host: "<url>"        # trusted origin (scheme+host+port)
+#   pg_user / pg_password / pg_validate_certs
+#
+# The pagination "next" link is untrusted: resolve_pagination_url pins the
+# origin to pg_host so Basic credentials are never sent to another host, and
+# a null next collapses to "" instead of tripping a length test.
 - name: Fetch one page
   ansible.builtin.uri:
-    url: "{{ pg_host }}{{ pg_next }}"
+    url: "{{ pg_host | resolve_pagination_url(pg_next) }}"
     method: GET
     url_username: "{{ pg_user }}"
     url_password: "{{ pg_password }}"
@@ -12,15 +25,48 @@
     return_content: true
     status_code: [200]
   register: pg_page
+  failed_when: false
+
+- name: Record a page error and stop paginating
+  ansible.builtin.set_fact:
+    pg_error: >-
+      HTTP {{ pg_page.status | default('unreachable') }} on page
+      {{ (pg_pages | int) + 1 }}
+      ({{ 'non-JSON response'
+          if (pg_page.status | default(0) | int) == 200 and pg_page.json is not defined
+          else (pg_page.msg | default('request failed')
+                | regex_replace('https?://[^ ]+', '<url>')) }})
+  when:
+    - pg_error | length == 0
+    - (pg_page.status | default(0) | int) != 200 or pg_page.json is not defined
+
+# Capture the raw next link into a fact BEFORE resolving it. Resolving
+# pg_page.json.next inline (in the same expression) mangles the string under
+# Ansible's templar; via an intermediate fact it is preserved correctly.
+- name: Capture raw next link
+  ansible.builtin.set_fact:
+    pg_raw_next: "{{ pg_page.json.next }}"
+  when: pg_error | length == 0
 
 - name: Accumulate page results
   ansible.builtin.set_fact:
     pg_results: "{{ pg_results + (pg_page.json.results | default([])) }}"
-    pg_next: "{{ pg_page.json.next | default('') }}"
-    pg_pages: "{{ pg_pages | int + 1 }}"
+    pg_next: "{{ pg_host | resolve_pagination_url(pg_raw_next) }}"
+    pg_pages: "{{ (pg_pages | int) + 1 }}"
+  when: pg_error | length == 0
+
+- name: Flag truncation when the page cap is reached with more pages pending
+  ansible.builtin.set_fact:
+    pg_truncated: true
+  when:
+    - pg_error | length == 0
+    - pg_next | length > 0
+    - (pg_pages | int) >= (parity_max_pages | default(100) | int)
 
 - name: Fetch next page
   ansible.builtin.include_tasks: paginated_get.yml
   when:
+    - pg_error | length == 0
+    - not (pg_truncated | default(false) | bool)
     - pg_next | length > 0
-    - pg_pages | int < parity_max_pages | default(100)
+    - (pg_pages | int) < (parity_max_pages | default(100) | int)

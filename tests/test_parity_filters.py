@@ -62,3 +62,81 @@ def test_report_fail_and_pass():
                           "field_mismatches": []}}
     meta["fail_on"] = "missing"
     assert "RESULT: PASS" in parity_report(clean, meta)
+
+
+# --- resolve_pagination_url -------------------------------------------------
+
+from parity import resolve_pagination_url
+
+HOST = "https://target.example.com"
+
+
+def test_resolve_initial_relative_path():
+    assert resolve_pagination_url(
+        HOST, "/api/v2/organizations/?page_size=200") \
+        == "https://target.example.com/api/v2/organizations/?page_size=200"
+
+
+def test_resolve_relative_next_path():
+    assert resolve_pagination_url(HOST, "/api/v2/hosts/?page=2") \
+        == "https://target.example.com/api/v2/hosts/?page=2"
+
+
+def test_resolve_absolute_next_uses_trusted_host():
+    # DRF returns an absolute URL for next; only its path+query may be used.
+    got = resolve_pagination_url(
+        HOST, "https://target.example.com/api/v2/hosts/?page=3")
+    assert got == "https://target.example.com/api/v2/hosts/?page=3"
+
+
+def test_resolve_absolute_next_different_host_is_pinned():
+    # A hostile/different host in next must not redirect Basic credentials.
+    got = resolve_pagination_url(
+        HOST, "https://attacker.evil/api/v2/hosts/?page=2")
+    assert got == "https://target.example.com/api/v2/hosts/?page=2"
+    assert "attacker.evil" not in got
+
+
+def test_resolve_absolute_next_with_port_pins_trusted_port():
+    got = resolve_pagination_url(
+        "https://target.example.com:8443",
+        "https://target.example.com:9999/api/v2/x/?page=2")
+    assert got == "https://target.example.com:8443/api/v2/x/?page=2"
+
+
+def test_resolve_drops_embedded_credentials():
+    got = resolve_pagination_url(
+        HOST, "https://user:secret@attacker.evil/api/v2/x/?page=2")
+    assert "secret" not in got and "user" not in got and "attacker" not in got
+    assert got == "https://target.example.com/api/v2/x/?page=2"
+
+
+def test_resolve_null_next_returns_empty():
+    assert resolve_pagination_url(HOST, None) == ""
+
+
+def test_resolve_empty_next_returns_empty():
+    assert resolve_pagination_url(HOST, "") == ""
+
+
+def test_resolve_unsupported_scheme_raises():
+    import pytest
+    with pytest.raises(ValueError):
+        resolve_pagination_url(HOST, "ftp://target.example.com/x/")
+
+
+def test_resolve_bad_trusted_host_raises():
+    import pytest
+    with pytest.raises(ValueError):
+        resolve_pagination_url("not-a-url", "/api/v2/x/")
+
+
+def test_resolve_preserves_encoded_query():
+    got = resolve_pagination_url(
+        HOST, "/api/v2/x/?name=a%20b&kind=smart")
+    assert got == "https://target.example.com/api/v2/x/?name=a%20b&kind=smart"
+
+
+def test_resolve_collapses_duplicate_slashes_in_path_only():
+    got = resolve_pagination_url(HOST, "/api//v2///x/?a=b//c")
+    assert got == "https://target.example.com/api/v2/x/?a=b//c"
