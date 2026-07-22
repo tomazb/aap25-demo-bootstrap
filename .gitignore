@@ -1,6 +1,9 @@
 # Local demo secrets — never commit (see README section 4)
 config/secrets.yml
 
+# Customer verification overlay (real hostnames/paths) — never commit
+config/verify.customer.yml
+
 # Ansible runtime artifacts
 *.retry
 .tmp/

@@ -1,0 +1,252 @@
+---
+# Customer-shaped, opt-in functional checks. Dispatched from
+# tasks/functional_check.yml for the customer check types. Each reuses an
+# existing mechanism and records into functional_passed / functional_failures.
+# check = one functional_checks entry.
+
+# Private SCM (on-prem GitHub) project sync: proves DNS/routing/internal CA
+# trust/Git auth/SCM credential decryption. Same mechanism as project_update.
+- name: "private_scm_project_update: {{ check.name }}"
+  when: check.type == 'private_scm_project_update'
+  block:
+    - name: "Sync private-SCM project {{ check.name }}"
+      ansible.controller.project_update:
+        project: "{{ check.name }}"
+        organization: "{{ check.organization | default(omit) }}"
+        wait: true
+        timeout: "{{ check.timeout | default(600) }}"
+    - name: "Record private_scm_project_update success: {{ check.name }}"
+      ansible.builtin.set_fact:
+        functional_passed: >-
+          {{ functional_passed + ['private_scm_project_update ' ~ check.name] }}
+  rescue:
+    - ansible.builtin.set_fact:
+        functional_failures: >-
+          {{ functional_failures + ['private_scm_project_update ' ~ check.name
+             ~ ' failed'] }}
+
+# Launch a template pinned to a custom execution environment and assert the
+# job actually ran on the expected EE. Proves registry pull + runtime deps.
+- name: "execution_environment_job: {{ check.name }}"
+  when: check.type == 'execution_environment_job'
+  block:
+    - name: "Launch EE job {{ check.name }}"
+      ansible.controller.job_launch:
+        name: "{{ check.name }}"
+        organization: "{{ check.organization }}"
+        extra_vars: "{{ check.extra_vars | default(omit) }}"
+        wait: true
+        interval: 5
+        timeout: "{{ check.timeout | default(900) }}"
+      register: functional_ee_job
+    - name: "Read EE job {{ check.name }}"
+      ansible.builtin.uri:
+        url: "{{ aap_hostname }}/api/controller/v2/jobs/{{ functional_ee_job.id }}/"
+        url_username: "{{ aap_username }}"
+        url_password: "{{ aap_password }}"
+        force_basic_auth: true
+        validate_certs: "{{ aap_validate_certs }}"
+        return_content: true
+        status_code: [200]
+      register: functional_ee_read
+    - name: "Assert EE matches expected for {{ check.name }}"
+      ansible.builtin.assert:
+        that:
+          - (functional_ee_read.json.summary_fields.execution_environment.name
+             | default('')) == check.execution_environment
+        fail_msg: >-
+          Job {{ functional_ee_job.id }} ran on EE
+          '{{ functional_ee_read.json.summary_fields.execution_environment.name
+              | default('none') }}', expected '{{ check.execution_environment }}'.
+    - name: "Record execution_environment_job success: {{ check.name }}"
+      ansible.builtin.set_fact:
+        functional_passed: >-
+          {{ functional_passed + ['execution_environment_job ' ~ check.name
+             ~ ' (job ' ~ functional_ee_job.id ~ ')'] }}
+  rescue:
+    - ansible.builtin.set_fact:
+        functional_failures: >-
+          {{ functional_failures + ['execution_environment_job ' ~ check.name
+             ~ ' failed'] }}
+
+# Launch a job against an explicitly configured disposable RHEL canary host.
+# DISABLED unless allow_real_managed_host_checks=true (this is the only check
+# that contacts a real managed host over SSH).
+- name: "ssh_canary_job: {{ check.name }}"
+  when: check.type == 'ssh_canary_job'
+  block:
+    - name: "Guard: real managed-host checks must be explicitly allowed"
+      ansible.builtin.assert:
+        that:
+          - allow_real_managed_host_checks | default(false) | bool
+        fail_msg: >-
+          ssh_canary_job contacts a real host. Set
+          -e allow_real_managed_host_checks=true and target only a disposable
+          canary host to run it.
+    - name: "Launch SSH canary job {{ check.name }}"
+      ansible.controller.job_launch:
+        name: "{{ check.name }}"
+        organization: "{{ check.organization }}"
+        limit: "{{ check.limit | default(omit) }}"
+        extra_vars: "{{ check.extra_vars | default(omit) }}"
+        wait: true
+        interval: 5
+        timeout: "{{ check.timeout | default(900) }}"
+      register: functional_canary
+    - name: "Record ssh_canary_job success: {{ check.name }}"
+      ansible.builtin.set_fact:
+        functional_passed: >-
+          {{ functional_passed + ['ssh_canary_job ' ~ check.name
+             ~ ' (job ' ~ functional_canary.id ~ ')'] }}
+  rescue:
+    - ansible.builtin.set_fact:
+        functional_failures: >-
+          {{ functional_failures + ['ssh_canary_job ' ~ check.name ~ ' failed'] }}
+
+# Launch a job that uses a CyberArk-backed external credential. A successful
+# target operation is the proof; secret values are never retrieved or reported.
+- name: "external_credential_job: {{ check.name }}"
+  when: check.type == 'external_credential_job'
+  block:
+    - name: "Launch external-credential job {{ check.name }}"
+      ansible.controller.job_launch:
+        name: "{{ check.name }}"
+        organization: "{{ check.organization }}"
+        extra_vars: "{{ check.extra_vars | default(omit) }}"
+        wait: true
+        interval: 5
+        timeout: "{{ check.timeout | default(900) }}"
+      register: functional_extcred
+    - name: "Record external_credential_job success: {{ check.name }}"
+      ansible.builtin.set_fact:
+        functional_passed: >-
+          {{ functional_passed + ['external_credential_job ' ~ check.name
+             ~ ' (job ' ~ functional_extcred.id ~ ')'] }}
+  rescue:
+    - ansible.builtin.set_fact:
+        functional_failures: >-
+          {{ functional_failures + ['external_credential_job ' ~ check.name
+             ~ ' failed'] }}
+
+# Launch a migrated workflow template; expected success or controlled failure.
+- name: "workflow_launch: {{ check.name }}"
+  when: check.type == 'workflow_launch'
+  block:
+    - name: "Launch workflow {{ check.name }}"
+      ansible.controller.workflow_launch:
+        name: "{{ check.name }}"
+        organization: "{{ check.organization | default(omit) }}"
+        extra_vars: "{{ check.extra_vars | default(omit) }}"
+        wait: true
+        interval: 5
+        timeout: "{{ check.timeout | default(1800) }}"
+      register: functional_wf
+      failed_when: >-
+        functional_wf.status != (check.expected_status | default('successful'))
+    - name: "Record workflow_launch success: {{ check.name }}"
+      ansible.builtin.set_fact:
+        functional_passed: >-
+          {{ functional_passed + ['workflow_launch ' ~ check.name
+             ~ ' (' ~ functional_wf.status | default('?') ~ ')'] }}
+  rescue:
+    - ansible.builtin.set_fact:
+        functional_failures: >-
+          {{ functional_failures + ['workflow_launch ' ~ check.name ~ ' failed'] }}
+
+# Trigger and wait for an inventory source sync (proves source plugin config
+# and its credential).
+- name: "inventory_source_update: {{ check.name }}"
+  when: check.type == 'inventory_source_update'
+  block:
+    - name: "Update inventory source {{ check.name }}"
+      ansible.controller.inventory_source_update:
+        name: "{{ check.name }}"
+        inventory: "{{ check.inventory }}"
+        organization: "{{ check.organization | default(omit) }}"
+        wait: true
+        timeout: "{{ check.timeout | default(900) }}"
+    - name: "Record inventory_source_update success: {{ check.name }}"
+      ansible.builtin.set_fact:
+        functional_passed: >-
+          {{ functional_passed + ['inventory_source_update ' ~ check.name] }}
+  rescue:
+    - ansible.builtin.set_fact:
+        functional_failures: >-
+          {{ functional_failures + ['inventory_source_update ' ~ check.name
+             ~ ' failed'] }}
+
+# Fire a ServiceNow (or other) notification test. Requires an explicit sandbox
+# marker so production ticketing is never hit by default.
+- name: "servicenow_notification_test: {{ check.name }}"
+  when: check.type == 'servicenow_notification_test'
+  block:
+    - name: "Guard: ServiceNow test requires an explicit sandbox marker"
+      ansible.builtin.assert:
+        that:
+          - check.sandbox | default(false) | bool
+        fail_msg: >-
+          servicenow_notification_test must set sandbox: true and point at a
+          non-production ServiceNow instance before it will run.
+    - name: "Look up notification template {{ check.name }}"
+      ansible.builtin.uri:
+        url: >-
+          {{ aap_hostname }}/api/controller/v2/notification_templates/?name={{
+          check.name | urlencode }}
+        url_username: "{{ aap_username }}"
+        url_password: "{{ aap_password }}"
+        force_basic_auth: true
+        validate_certs: "{{ aap_validate_certs }}"
+        return_content: true
+        status_code: [200]
+      register: functional_snow_nt
+    - name: "Resolve org-scoped ServiceNow notifier {{ check.name }}"
+      ansible.builtin.set_fact:
+        functional_snow_matches: >-
+          {{ (functional_snow_nt.json.results | default([]))
+             | selectattr('summary_fields.organization.name', 'equalto',
+                          check.organization) | list }}
+    - name: "Require exactly one ServiceNow notifier match"
+      ansible.builtin.assert:
+        that:
+          - (functional_snow_matches | length) == 1
+        fail_msg: >-
+          Expected one notification template '{{ check.name }}' in
+          '{{ check.organization }}', found {{ functional_snow_matches | length }}.
+    - name: "Fire ServiceNow test notification {{ check.name }}"
+      ansible.builtin.uri:
+        url: >-
+          {{ aap_hostname }}/api/controller/v2/notification_templates/{{
+          functional_snow_matches[0].id }}/test/
+        method: POST
+        url_username: "{{ aap_username }}"
+        url_password: "{{ aap_password }}"
+        force_basic_auth: true
+        validate_certs: "{{ aap_validate_certs }}"
+        status_code: [202]
+        return_content: true
+      register: functional_snow_fire
+    - name: "Poll ServiceNow notification result {{ check.name }}"
+      ansible.builtin.uri:
+        url: >-
+          {{ aap_hostname }}/api/controller/v2/notifications/{{
+          functional_snow_fire.json.id }}/
+        url_username: "{{ aap_username }}"
+        url_password: "{{ aap_password }}"
+        force_basic_auth: true
+        validate_certs: "{{ aap_validate_certs }}"
+        return_content: true
+        status_code: [200]
+      register: functional_snow_res
+      until: functional_snow_res.json.status in ['successful', 'failed']
+      retries: 30
+      delay: 2
+      failed_when: functional_snow_res.json.status != 'successful'
+    - name: "Record servicenow_notification_test success: {{ check.name }}"
+      ansible.builtin.set_fact:
+        functional_passed: >-
+          {{ functional_passed + ['servicenow_notification_test ' ~ check.name] }}
+  rescue:
+    - ansible.builtin.set_fact:
+        functional_failures: >-
+          {{ functional_failures + ['servicenow_notification_test ' ~ check.name
+             ~ ' failed'] }}

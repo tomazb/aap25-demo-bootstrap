@@ -1,0 +1,42 @@
+---
+# Verify one restricted user's visibility. rbac_user = {username, organization}.
+# Authenticates AS the user and confirms other organizations' content is not
+# visible in list results. The password is never printed.
+- name: "{{ rbac_user.username }}: list job templates as the user"
+  ansible.builtin.uri:
+    url: "{{ aap_hostname }}/api/controller/v2/job_templates/?page_size=200"
+    url_username: "{{ rbac_user.username }}"
+    url_password: "{{ rbac_password }}"
+    force_basic_auth: true
+    validate_certs: "{{ aap_validate_certs }}"
+    return_content: true
+    status_code: [200]
+  register: rbac_jt
+  failed_when: false
+  no_log: true
+
+- name: "{{ rbac_user.username }}: record auth/list failure"
+  ansible.builtin.set_fact:
+    rbac_failures: >-
+      {{ rbac_failures + ['restricted-user list failed for '
+         ~ rbac_user.username ~ ' (status='
+         ~ (rbac_jt.status | default('unreachable')) ~ ')'] }}
+  when: (rbac_jt.status | default(0) | int) != 200
+
+- name: "{{ rbac_user.username }}: record any cross-organization visibility"
+  ansible.builtin.set_fact:
+    rbac_failures: >-
+      {{ rbac_failures + ['user ' ~ rbac_user.username
+         ~ ' can see content from other organizations: '
+         ~ (rbac_foreign | map(attribute='summary_fields.organization.name')
+            | unique | join(', '))] }}
+  vars:
+    rbac_foreign: >-
+      {{ (rbac_jt.json.results | default([]))
+         | rejectattr('summary_fields.organization.name', 'equalto',
+                      rbac_user.organization) | list }}
+  when:
+    - (rbac_jt.status | default(0) | int) == 200
+    - (rbac_jt.json.results | default([]))
+      | rejectattr('summary_fields.organization.name', 'equalto',
+                   rbac_user.organization) | list | length > 0

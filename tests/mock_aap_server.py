@@ -12,6 +12,7 @@ argv[1] = port file. Scenarios:
   stale_history      job templates exist but NO successful history for the
                      current template id (only stale runs of an old id existed)
 """
+import base64
 import json
 import os
 import sys
@@ -35,6 +36,12 @@ JT = {j["name"]: {"org": j["organization"], "id": 100 + n}
 CONTROLLED = "Demo 05 - Controlled outcome"
 FIRST_PROJECT = DEMO["demo_projects"][0]["name"]
 FIRST_INV = DEMO["demo_inventories"][0]["name"]
+# Restricted-user RBAC: map username -> org, and enumerate all JT rows so an
+# unfiltered list can be scoped to the authenticated user's own organization.
+USER_ORG = {u["username"]: u["organization"] for u in DEMO["demo_users"]}
+JT_ROWS = [{"name": n, "id": v["id"],
+            "summary_fields": {"organization": {"name": v["org"]}}}
+           for n, v in JT.items()]
 
 
 def _list(results):
@@ -52,12 +59,33 @@ class Handler(BaseHTTPRequestHandler):
         self.end_headers()
         self.wfile.write(json.dumps(body).encode())
 
+    def _auth_user(self):
+        hdr = self.headers.get("Authorization", "")
+        if hdr.startswith("Basic "):
+            try:
+                return base64.b64decode(hdr[6:]).decode().split(":", 1)[0]
+            except Exception:
+                return None
+        return None
+
     def do_GET(self):
         p = urlparse(self.path)
         q = parse_qs(p.query)
         path = p.path
         name = q.get("name", [None])[0]
         username = q.get("username", [None])[0]
+
+        # Restricted-user RBAC: an unfiltered job-template list is scoped to the
+        # authenticated user's own organization (admin/unknown sees all).
+        if path == "/api/controller/v2/job_templates/" and name is None:
+            who = self._auth_user()
+            if who in USER_ORG:
+                org = USER_ORG[who]
+                rows = [r for r in JT_ROWS
+                        if r["summary_fields"]["organization"]["name"] == org]
+            else:
+                rows = JT_ROWS
+            return self._send(200, _list(rows))
 
         if path == "/api/gateway/v1/organizations/":
             return self._send(200, _list(

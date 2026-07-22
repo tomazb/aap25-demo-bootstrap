@@ -47,3 +47,6 @@ jobs:
 
       - name: Functional NOT_RUN semantics
         run: tests/functional_offline.sh
+
+      - name: Restricted-user RBAC (mock AAP)
+        run: tests/rbac_offline.sh

@@ -1,0 +1,116 @@
+---
+# Restricted-user RBAC verification (Phase 2). Authenticates AS each configured
+# test user and confirms other organizations' content is not visible. This is
+# the RBAC proof the admin-authenticated smoke gate deliberately does NOT make.
+#
+# The shared demo password comes only from RBAC_DEMO_PASSWORD (env) or a
+# Vault-provided demo_user_password; it is never printed. AD-backed login is an
+# opt-in live/manual item (see the manual checklist in the report).
+- name: Verify restricted-user visibility on the AAP 2.5 target
+  hosts: localhost
+  connection: local
+  gather_facts: false
+
+  vars_files:
+    - config/verify.yml
+
+  vars:
+    aap_hostname: >-
+      {{ lookup('ansible.builtin.env', 'AAP_HOSTNAME') | regex_replace('/+$', '') }}
+    aap_validate_certs: >-
+      {{ (lookup('ansible.builtin.env', 'AAP_VALIDATE_CERTS') or 'true') | bool }}
+    rbac_password: >-
+      {{ lookup('ansible.builtin.env', 'RBAC_DEMO_PASSWORD')
+         or (demo_user_password | default('')) }}
+    rbac_users: []
+    rbac_failures: []
+    rbac_allow_insecure: false
+    rbac_timestamp: "{{ lookup('ansible.builtin.pipe', 'date -u +%Y%m%dT%H%M%SZ') }}"
+
+  pre_tasks:
+    - name: Report NOT_RUN when no rbac_users are configured
+      when: rbac_users | length == 0
+      block:
+        - ansible.builtin.file:
+            path: "{{ verify_report_dir }}"
+            state: directory
+            mode: "0755"
+        - ansible.builtin.copy:
+            dest: "{{ verify_report_dir }}/rbac-{{ rbac_timestamp }}.md"
+            mode: "0644"
+            content: |
+              # Restricted-user RBAC report
+
+              - Target: {{ aap_hostname }}
+              - Timestamp: {{ rbac_timestamp }}
+
+              No rbac_users configured (see config/verify.customer.example.yml).
+
+              RESULT: NOT_RUN
+        - ansible.builtin.meta: end_play
+
+    - name: Require secure transport before sending credentials
+      ansible.builtin.assert:
+        that:
+          - aap_hostname is match('^https://')
+          - aap_validate_certs | bool
+        fail_msg: >-
+          Export an HTTPS AAP_HOSTNAME with certificate validation enabled.
+          Set -e rbac_allow_insecure=true only for a throwaway lab.
+      when: not (rbac_allow_insecure | bool)
+
+    - name: Require a restricted-user password (never printed)
+      ansible.builtin.assert:
+        that:
+          - rbac_password | length > 0
+        fail_msg: >-
+          Provide the demo user password via RBAC_DEMO_PASSWORD (env) or a
+          Vault-encrypted demo_user_password. It is never read from config.
+
+  tasks:
+    - name: Verify each restricted user
+      ansible.builtin.include_tasks: tasks/rbac_user.yml
+      loop: "{{ rbac_users }}"
+      loop_control:
+        loop_var: rbac_user
+        label: "{{ rbac_user.username }} ({{ rbac_user.organization }})"
+
+    - name: Ensure report directory exists
+      ansible.builtin.file:
+        path: "{{ verify_report_dir }}"
+        state: directory
+        mode: "0755"
+
+    - name: Write RBAC report
+      ansible.builtin.copy:
+        dest: "{{ verify_report_dir }}/rbac-{{ rbac_timestamp }}.md"
+        mode: "0644"
+        content: |
+          # Restricted-user RBAC report
+
+          - Target: {{ aap_hostname }}
+          - Timestamp: {{ rbac_timestamp }}
+          - Users checked: {{ rbac_users | length }}
+          - Failures: {{ rbac_failures | length }}
+          {% if rbac_allow_insecure | bool %}
+          - **UNSAFE: rbac_allow_insecure=true — TLS/cert checks bypassed. Lab only.**
+          {% endif %}
+          {% for f in rbac_failures %}
+          - FAIL: {{ f }}
+          {% endfor %}
+
+          ## Manual checklist (AD / enterprise SSO — not automated)
+
+          - [ ] AD authentication succeeds against the target gateway
+          - [ ] AD group -> team mapping is correct
+          - [ ] AD group -> organization mapping is correct
+          - [ ] Access is removed after AD group removal
+          - [ ] Default organization access is as intended
+          - [ ] Additional team organizations have the intended access
+
+          RESULT: {{ 'FAIL' if rbac_failures else 'PASS' }}
+
+    - name: Fail when any restricted-user check failed
+      ansible.builtin.assert:
+        that: rbac_failures | length == 0
+        fail_msg: "RBAC verification failed: {{ rbac_failures }}"

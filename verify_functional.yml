@@ -17,6 +17,15 @@
     functional_failures: []
     functional_passed: []
     functional_ran: false
+    functional_base_types: [job_template, project_update, notification_test]
+    functional_customer_types:
+      - private_scm_project_update
+      - execution_environment_job
+      - ssh_canary_job
+      - external_credential_job
+      - workflow_launch
+      - inventory_source_update
+      - servicenow_notification_test
     functional_timestamp: "{{ lookup('ansible.builtin.pipe', 'date -u +%Y%m%dT%H%M%SZ') }}"
     # Lab-only escape hatch (see verify_smoke.yml). Default false.
     functional_allow_insecure: false
@@ -58,12 +67,13 @@
             that:
               - functional_checks is sequence
               - item.type is defined
-              - item.type in ['job_template', 'project_update', 'notification_test']
+              - item.type in (functional_base_types + functional_customer_types)
               - item.name is defined
-              - item.type != 'notification_test' or item.organization is defined
+              - item.type not in ['notification_test', 'servicenow_notification_test']
+                or item.organization is defined
             fail_msg: >-
               Malformed functional_checks entry: {{ item }}. Each entry needs a
-              supported type and name; notification_test also needs organization.
+              supported type and name; notification checks also need organization.
           loop: "{{ functional_checks }}"
           loop_control:
             label: "{{ item.type | default('?') }}: {{ item.name | default('?') }}"
