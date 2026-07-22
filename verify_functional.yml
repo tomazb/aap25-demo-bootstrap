@@ -1,0 +1,107 @@
+---
+- name: Functionally verify migrated content on the AAP 2.5 target
+  hosts: localhost
+  connection: local
+  gather_facts: false
+
+  vars_files:
+    - config/verify.yml
+
+  vars:
+    aap_hostname: >-
+      {{ lookup('ansible.builtin.env', 'AAP_HOSTNAME') | regex_replace('/+$', '') }}
+    aap_username: "{{ lookup('ansible.builtin.env', 'AAP_USERNAME') }}"
+    aap_password: "{{ lookup('ansible.builtin.env', 'AAP_PASSWORD') }}"
+    aap_validate_certs: >-
+      {{ (lookup('ansible.builtin.env', 'AAP_VALIDATE_CERTS') or 'true') | bool }}
+    functional_failures: []
+    functional_passed: []
+    functional_timestamp: "{{ lookup('ansible.builtin.pipe', 'date -u +%Y%m%dT%H%M%SZ') }}"
+
+  module_defaults:
+    group/ansible.controller.controller:
+      controller_host: "{{ aap_hostname }}"
+      controller_username: "{{ aap_username }}"
+      controller_password: "{{ aap_password }}"
+      validate_certs: "{{ aap_validate_certs }}"
+
+  tasks:
+    - name: Note when no functional checks are configured
+      ansible.builtin.debug:
+        msg: >-
+          functional_checks is empty; configure per-migration checks in
+          config/verify.yml. Writing report and exiting successfully.
+      when: functional_checks | length == 0
+
+    - name: Run configured functional checks
+      ansible.builtin.include_tasks: tasks/functional_check.yml
+      loop: "{{ functional_checks }}"
+      loop_control:
+        loop_var: check
+        label: "{{ check.type }}: {{ check.name }}"
+      when: functional_checks | length > 0
+
+    - name: Check enabled schedules have next_run populated
+      ansible.builtin.uri:
+        url: "{{ aap_hostname }}/api/controller/v2/schedules/?enabled=true&page_size=200"
+        url_username: "{{ aap_username }}"
+        url_password: "{{ aap_password }}"
+        force_basic_auth: true
+        validate_certs: "{{ aap_validate_certs }}"
+        return_content: true
+      register: functional_schedules
+      when: functional_checks | length > 0
+
+    - name: Record schedules without next_run
+      ansible.builtin.set_fact:
+        functional_failures: >-
+          {{ functional_failures + ['schedule has no next_run: ' ~ item.name] }}
+      loop: "{{ (functional_schedules.json.results | default([]))
+                | selectattr('next_run', 'none') | list }}"
+      loop_control:
+        label: "{{ item.name }}"
+      when: functional_checks | length > 0
+
+    - name: Ensure report directory exists
+      ansible.builtin.file:
+        path: "{{ verify_report_dir }}"
+        state: directory
+        mode: "0755"
+
+    - name: Write functional report
+      ansible.builtin.copy:
+        dest: "{{ verify_report_dir }}/functional-{{ functional_timestamp }}.md"
+        mode: "0644"
+        content: |
+          # Functional verification report
+
+          - Target: {{ aap_hostname }}
+          - Timestamp: {{ functional_timestamp }}
+          - Checks configured: {{ functional_checks | length }}
+          - Passed: {{ functional_passed | length }}
+          - Failed: {{ functional_failures | length }}
+
+          {% if functional_checks | length == 0 %}
+          No functional checks configured (config/verify.yml
+          functional_checks). Nothing was launched.
+          {% endif %}
+          {% for p in functional_passed %}
+          - PASS: {{ p }}
+          {% endfor %}
+          {% for f in functional_failures %}
+          - FAIL: {{ f }}
+          {% endfor %}
+
+          ## Manual checklist (not automatable)
+
+          - [ ] SSO / LDAP login works against the target gateway
+          - [ ] Settings reviewed (jobs, system, authentication)
+          - [ ] Instance groups / container groups match the intended topology
+          - [ ] Execution / hop node topology reviewed (mesh)
+
+          RESULT: {{ 'FAIL' if functional_failures else 'PASS' }}
+
+    - name: Fail when any functional check failed
+      ansible.builtin.assert:
+        that: functional_failures | length == 0
+        fail_msg: "Functional verification failed: {{ functional_failures }}"
