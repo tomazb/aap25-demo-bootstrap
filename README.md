@@ -26,6 +26,8 @@ ansible-galaxy collection list | grep -E 'ansible\.(platform|controller)'
 
 Expected version families are `ansible.platform 2.5.x` and `ansible.controller 4.6.x`. Do not silently install 2.6/2.7 collection families against AAP 2.5.
 
+`requirements.yml` requires `ansible.platform >= 2.5.20250702`: earlier 2.5 GA builds lack the `object_ids` name-lookup parameter on `role_user_assignment` that the user role assignments depend on. If your private automation hub only mirrors an older 2.5 build, sync a newer one before running the bootstrap.
+
 ## 3. Export bootstrap authentication
 
 Use the platform gateway URL. A temporary platform administrator credential is the simplest bootstrap method. Do not commit it.
@@ -35,12 +37,9 @@ export AAP_HOSTNAME='https://aap.example.com'
 export AAP_USERNAME='admin'
 export AAP_PASSWORD='REDACTED'
 export AAP_VALIDATE_CERTS='true'
-
-export CONTROLLER_HOST="$AAP_HOSTNAME"
-export CONTROLLER_USERNAME="$AAP_USERNAME"
-export CONTROLLER_PASSWORD="$AAP_PASSWORD"
-export CONTROLLER_VERIFY_SSL="$AAP_VALIDATE_CERTS"
 ```
+
+The playbook feeds these values to the `ansible.controller` modules through `module_defaults`, so `CONTROLLER_*` environment variables are not needed. Most `ansible.controller` 4.6.x builds only read `CONTROLLER_*` variables, not `AAP_*`, which is why the playbook passes the values explicitly instead of relying on the environment.
 
 For a private CA, install the CA trust on the bootstrap host instead of setting certificate validation to false.
 
@@ -66,6 +65,8 @@ ansible-playbook bootstrap.yml \
   -e demo_scm_branch='main' \
   -e @config/secrets.yml --ask-vault-pass
 ```
+
+On a fresh instance the task `Wait for gateway organizations to propagate to the controller` can pause for up to 15 minutes: the controller learns about gateway-created organizations through a periodic resource sync with a 15-minute default interval. This is expected; the bootstrap continues as soon as all three organizations are visible on the controller side.
 
 Run it a second time. Configuration tasks should be idempotent; the final history-seeding task intentionally creates additional job runs each time.
 
