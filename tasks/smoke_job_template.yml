@@ -1,0 +1,104 @@
+---
+# Verify one demo job template exists (org-scoped) and that the CURRENT
+# template id has job history. Tying history to the resolved id prevents stale
+# runs from a deleted/recreated template satisfying the gate.
+# smoke_jt = one demo_job_templates entry.
+- name: "{{ smoke_jt.name }}: look up job template"
+  ansible.builtin.uri:
+    url: "{{ aap_hostname }}/api/controller/v2/job_templates/?name={{ smoke_jt.name | urlencode }}"
+    url_username: "{{ aap_username }}"
+    url_password: "{{ aap_password }}"
+    force_basic_auth: true
+    validate_certs: "{{ aap_validate_certs }}"
+    return_content: true
+    status_code: [200]
+  register: smoke_jt_lookup
+  failed_when: false
+
+- name: "{{ smoke_jt.name }}: resolve org-scoped match"
+  ansible.builtin.set_fact:
+    smoke_jt_matches: >-
+      {{ (smoke_jt_lookup.json.results | default([]))
+         | selectattr('summary_fields.organization.name', 'equalto',
+                      smoke_jt.organization) | list }}
+
+- name: "{{ smoke_jt.name }}: record lookup problems"
+  ansible.builtin.set_fact:
+    smoke_failures: >-
+      {{ smoke_failures + [smoke_jt_problem] }}
+  vars:
+    smoke_jt_problem: >-
+      {{ 'job template request failed: ' ~ smoke_jt.name
+         ~ ' (status=' ~ (smoke_jt_lookup.status | default('unreachable')) ~ ')'
+         if (smoke_jt_lookup.status | default(0) | int) != 200
+         else ('job template missing in org: ' ~ smoke_jt.organization ~ ' / '
+               ~ smoke_jt.name) if (smoke_jt_matches | length) == 0
+         else ('duplicate job template in org: ' ~ smoke_jt.organization ~ ' / '
+               ~ smoke_jt.name) }}
+  when: >-
+    (smoke_jt_lookup.status | default(0) | int) != 200
+    or (smoke_jt_matches | length) != 1
+
+- name: "{{ smoke_jt.name }}: check history for the current template id"
+  when: (smoke_jt_matches | length) == 1
+  block:
+    - name: "{{ smoke_jt.name }}: query successful jobs by current template id"
+      ansible.builtin.uri:
+        url: >-
+          {{ aap_hostname }}/api/controller/v2/jobs/?job_template={{
+          smoke_jt_matches[0].id }}&status=successful&page_size=1
+        url_username: "{{ aap_username }}"
+        url_password: "{{ aap_password }}"
+        force_basic_auth: true
+        validate_certs: "{{ aap_validate_certs }}"
+        return_content: true
+        status_code: [200]
+      register: smoke_jt_success
+      failed_when: false
+
+    - name: "{{ smoke_jt.name }}: record missing successful history"
+      ansible.builtin.set_fact:
+        smoke_failures: >-
+          {{ smoke_failures + [smoke_hist_problem] }}
+      vars:
+        smoke_hist_problem: >-
+          {{ 'job history request failed for current template: ' ~ smoke_jt.name
+             ~ ' (status=' ~ (smoke_jt_success.status | default('unreachable')) ~ ')'
+             if (smoke_jt_success.status | default(0) | int) != 200
+             else 'no successful run for the current template id: '
+                  ~ smoke_jt.name }}
+      when: >-
+        (smoke_jt_success.status | default(0) | int) != 200
+        or (smoke_jt_success.json.count | default(0) | int) < 1
+
+    - name: "{{ smoke_jt.name }}: query failed jobs by current template id"
+      ansible.builtin.uri:
+        url: >-
+          {{ aap_hostname }}/api/controller/v2/jobs/?job_template={{
+          smoke_jt_matches[0].id }}&status=failed&page_size=1
+        url_username: "{{ aap_username }}"
+        url_password: "{{ aap_password }}"
+        force_basic_auth: true
+        validate_certs: "{{ aap_validate_certs }}"
+        return_content: true
+        status_code: [200]
+      register: smoke_jt_failed
+      failed_when: false
+      when: smoke_jt.name == smoke_controlled_outcome_name
+
+    - name: "{{ smoke_jt.name }}: record missing intentional-failure history"
+      ansible.builtin.set_fact:
+        smoke_failures: >-
+          {{ smoke_failures + [smoke_fail_problem] }}
+      vars:
+        smoke_fail_problem: >-
+          {{ 'failed-job history request failed for current template: '
+             ~ smoke_jt.name ~ ' (status='
+             ~ (smoke_jt_failed.status | default('unreachable')) ~ ')'
+             if (smoke_jt_failed.status | default(0) | int) != 200
+             else 'no failed run for the current controlled-outcome template id' }}
+      when:
+        - smoke_jt.name == smoke_controlled_outcome_name
+        - >-
+          (smoke_jt_failed.status | default(0) | int) != 200
+          or (smoke_jt_failed.json.count | default(0) | int) < 1
