@@ -3,3 +3,4 @@ config/secrets.yml
 
 # Ansible runtime artifacts
 *.retry
+.tmp/

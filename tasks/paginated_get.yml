@@ -1,0 +1,26 @@
+---
+# Follow API pagination, accumulating rows into pg_results.
+# Caller must set_fact first: pg_results: [], pg_next: "{{ pg_path }}", pg_pages: 0
+- name: Fetch one page
+  ansible.builtin.uri:
+    url: "{{ pg_host }}{{ pg_next }}"
+    method: GET
+    url_username: "{{ pg_user }}"
+    url_password: "{{ pg_password }}"
+    force_basic_auth: true
+    validate_certs: "{{ pg_validate_certs }}"
+    return_content: true
+    status_code: [200]
+  register: pg_page
+
+- name: Accumulate page results
+  ansible.builtin.set_fact:
+    pg_results: "{{ pg_results + (pg_page.json.results | default([])) }}"
+    pg_next: "{{ pg_page.json.next | default('') }}"
+    pg_pages: "{{ pg_pages | int + 1 }}"
+
+- name: Fetch next page
+  ansible.builtin.include_tasks: paginated_get.yml
+  when:
+    - pg_next | length > 0
+    - pg_pages | int < parity_max_pages | default(100)
