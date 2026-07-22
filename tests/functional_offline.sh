@@ -2,7 +2,7 @@
 # Offline test for verify_functional.yml NOT_RUN semantics. No network:
 # functional_checks is empty so nothing is launched.
 set -uo pipefail
-cd "$(dirname "$0")/.."
+cd "$(dirname "$0")/.." || exit 1
 reportdir=".tmp/functional-reports"
 rm -rf "$reportdir"; mkdir -p "$reportdir"
 fail() { echo "FUNCTIONAL OFFLINE FAIL: $1" >&2; exit 1; }
