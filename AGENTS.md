@@ -65,8 +65,20 @@ managed host.
 - Offline test entry points (also run in `.github/workflows/ci.yml`):
   `python3 -m pytest tests/`, `bash -n tests/*.sh`, `tests/syntax_check.sh`,
   `tests/pagination_offline.sh`, `tests/parity_offline.sh`,
-  `tests/smoke_offline.sh`, `tests/functional_offline.sh`. All are offline and
-  need no AAP, Galaxy, or secrets.
+  `tests/smoke_offline.sh`, `tests/functional_offline.sh`,
+  `tests/customer_functional_offline.sh`, `tests/rbac_offline.sh`. All are
+  offline and need no AAP, Galaxy, or secrets. `tests/stubs/` holds local stub
+  `ansible.controller` modules used only by the customer-functional test.
+- Customer functional checks are opt-in and validated pre-flight
+  (`tasks/functional_validate.yml` + `functional_field_specs`). `ssh_canary_job`
+  is the only check that contacts a real host: it stays disabled unless
+  `allow_real_managed_host_checks=true` AND `check.limit` exactly matches an
+  entry in a non-empty `ssh_canary_allowlist` (broad targets rejected). Never
+  weaken these gates.
+- `verify_rbac.yml` proves positive (expected templates visible once in-org)
+  and negative (no forbidden-org content) visibility, paginated as the user;
+  `rbac_allow_empty` mirrors `functional_allow_empty` (NOT_RUN is never PASS).
+  Reports/markers/output must never contain passwords, tokens, or extra_vars.
 
 ## Run
 See README.md. Short form:
