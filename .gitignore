@@ -4,3 +4,6 @@ config/secrets.yml
 # Ansible runtime artifacts
 *.retry
 .tmp/
+
+# Verification run output
+reports/
