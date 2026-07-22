@@ -1,0 +1,237 @@
+---
+- name: Smoke-verify demo state on the AAP 2.5 target
+  hosts: localhost
+  connection: local
+  gather_facts: false
+
+  vars_files:
+    - config/demo.yml
+    - config/verify.yml
+
+  vars:
+    aap_hostname: >-
+      {{ lookup('ansible.builtin.env', 'AAP_HOSTNAME') | regex_replace('/+$', '') }}
+    aap_username: "{{ lookup('ansible.builtin.env', 'AAP_USERNAME') }}"
+    aap_password: "{{ lookup('ansible.builtin.env', 'AAP_PASSWORD') }}"
+    aap_validate_certs: >-
+      {{ (lookup('ansible.builtin.env', 'AAP_VALIDATE_CERTS') or 'true') | bool }}
+    smoke_failures: []
+    smoke_timestamp: "{{ lookup('ansible.builtin.pipe', 'date -u +%Y%m%dT%H%M%SZ') }}"
+
+  pre_tasks:
+    - name: Validate required inputs
+      ansible.builtin.assert:
+        that:
+          - aap_hostname | length > 0
+          - aap_username | length > 0
+          - aap_password | length > 0
+        fail_msg: Export AAP_HOSTNAME, AAP_USERNAME and AAP_PASSWORD first.
+
+  tasks:
+    - name: Check gateway organizations exist
+      ansible.builtin.uri:
+        url: "{{ aap_hostname }}/api/gateway/v1/organizations/?name={{ item.name | urlencode }}"
+        url_username: "{{ aap_username }}"
+        url_password: "{{ aap_password }}"
+        force_basic_auth: true
+        validate_certs: "{{ aap_validate_certs }}"
+        return_content: true
+      register: smoke_orgs
+      loop: "{{ demo_organizations }}"
+      loop_control:
+        label: "{{ item.name }}"
+
+    - name: Record missing organizations
+      ansible.builtin.set_fact:
+        smoke_failures: "{{ smoke_failures + ['organization missing: ' ~ item.item.name] }}"
+      loop: "{{ smoke_orgs.results }}"
+      loop_control:
+        label: "{{ item.item.name }}"
+      when: (item.json.count | default(0) | int) < 1
+
+    - name: Check gateway teams exist
+      ansible.builtin.uri:
+        url: "{{ aap_hostname }}/api/gateway/v1/teams/?name={{ item.name | urlencode }}"
+        url_username: "{{ aap_username }}"
+        url_password: "{{ aap_password }}"
+        force_basic_auth: true
+        validate_certs: "{{ aap_validate_certs }}"
+        return_content: true
+      register: smoke_teams
+      loop: "{{ demo_teams }}"
+      loop_control:
+        label: "{{ item.name }}"
+
+    - name: Record missing teams
+      ansible.builtin.set_fact:
+        smoke_failures: "{{ smoke_failures + ['team missing: ' ~ item.item.name] }}"
+      loop: "{{ smoke_teams.results }}"
+      loop_control:
+        label: "{{ item.item.name }}"
+      when: (item.json.count | default(0) | int) < 1
+
+    - name: Check gateway users exist
+      ansible.builtin.uri:
+        url: "{{ aap_hostname }}/api/gateway/v1/users/?username={{ item.username | urlencode }}"
+        url_username: "{{ aap_username }}"
+        url_password: "{{ aap_password }}"
+        force_basic_auth: true
+        validate_certs: "{{ aap_validate_certs }}"
+        return_content: true
+      register: smoke_users
+      loop: "{{ demo_users }}"
+      loop_control:
+        label: "{{ item.username }}"
+      when: demo_create_users | default(true) | bool
+
+    - name: Record missing users
+      ansible.builtin.set_fact:
+        smoke_failures: "{{ smoke_failures + ['user missing: ' ~ item.item.username] }}"
+      loop: "{{ smoke_users.results | default([]) }}"
+      loop_control:
+        label: "{{ item.item.username | default('skipped') }}"
+      when:
+        - demo_create_users | default(true) | bool
+        - (item.json.count | default(0) | int) < 1
+
+    - name: Check controller inventories exist
+      ansible.builtin.uri:
+        url: "{{ aap_hostname }}/api/controller/v2/inventories/?name={{ item.name | urlencode }}"
+        url_username: "{{ aap_username }}"
+        url_password: "{{ aap_password }}"
+        force_basic_auth: true
+        validate_certs: "{{ aap_validate_certs }}"
+        return_content: true
+      register: smoke_inventories
+      loop: "{{ demo_inventories }}"
+      loop_control:
+        label: "{{ item.name }}"
+
+    - name: Record missing inventories
+      ansible.builtin.set_fact:
+        smoke_failures: "{{ smoke_failures + ['inventory missing: ' ~ item.item.name] }}"
+      loop: "{{ smoke_inventories.results }}"
+      loop_control:
+        label: "{{ item.item.name }}"
+      when: (item.json.count | default(0) | int) < 1
+
+    - name: Check projects exist and last-synced successfully
+      ansible.builtin.uri:
+        url: "{{ aap_hostname }}/api/controller/v2/projects/?name={{ item.name | urlencode }}"
+        url_username: "{{ aap_username }}"
+        url_password: "{{ aap_password }}"
+        force_basic_auth: true
+        validate_certs: "{{ aap_validate_certs }}"
+        return_content: true
+      register: smoke_projects
+      loop: "{{ demo_projects }}"
+      loop_control:
+        label: "{{ item.name }}"
+
+    - name: Record missing or unsynced projects
+      ansible.builtin.set_fact:
+        smoke_failures: >-
+          {{ smoke_failures + ['project missing or not successfully synced: '
+             ~ item.item.name ~ ' (status='
+             ~ (item.json.results[0].status | default('absent')) ~ ')'] }}
+      loop: "{{ smoke_projects.results }}"
+      loop_control:
+        label: "{{ item.item.name }}"
+      when: >-
+        (item.json.count | default(0) | int) < 1
+        or (item.json.results[0].status | default('')) != 'successful'
+
+    - name: Check job templates exist
+      ansible.builtin.uri:
+        url: "{{ aap_hostname }}/api/controller/v2/job_templates/?name={{ item.name | urlencode }}"
+        url_username: "{{ aap_username }}"
+        url_password: "{{ aap_password }}"
+        force_basic_auth: true
+        validate_certs: "{{ aap_validate_certs }}"
+        return_content: true
+      register: smoke_templates
+      loop: "{{ demo_job_templates }}"
+      loop_control:
+        label: "{{ item.name }}"
+
+    - name: Record missing job templates
+      ansible.builtin.set_fact:
+        smoke_failures: "{{ smoke_failures + ['job template missing: ' ~ item.item.name] }}"
+      loop: "{{ smoke_templates.results }}"
+      loop_control:
+        label: "{{ item.item.name }}"
+      when: (item.json.count | default(0) | int) < 1
+
+    - name: Check each seeded template has at least one successful run
+      ansible.builtin.uri:
+        url: >-
+          {{ aap_hostname }}/api/controller/v2/jobs/?name={{ item.name | urlencode
+          }}&status=successful&page_size=1
+        url_username: "{{ aap_username }}"
+        url_password: "{{ aap_password }}"
+        force_basic_auth: true
+        validate_certs: "{{ aap_validate_certs }}"
+        return_content: true
+      register: smoke_job_history
+      loop: "{{ demo_job_templates }}"
+      loop_control:
+        label: "{{ item.name }}"
+
+    - name: Record templates without successful history
+      ansible.builtin.set_fact:
+        smoke_failures: "{{ smoke_failures + ['no successful run recorded: ' ~ item.item.name] }}"
+      loop: "{{ smoke_job_history.results }}"
+      loop_control:
+        label: "{{ item.item.name }}"
+      when: (item.json.count | default(0) | int) < 1
+
+    - name: Check the controlled-outcome template has a failed run
+      ansible.builtin.uri:
+        url: >-
+          {{ aap_hostname }}/api/controller/v2/jobs/?name={{
+          'Demo 05 - Controlled outcome' | urlencode }}&status=failed&page_size=1
+        url_username: "{{ aap_username }}"
+        url_password: "{{ aap_password }}"
+        force_basic_auth: true
+        validate_certs: "{{ aap_validate_certs }}"
+        return_content: true
+      register: smoke_failed_history
+
+    - name: Record missing intentional-failure history
+      ansible.builtin.set_fact:
+        smoke_failures: >-
+          {{ smoke_failures + ['no failed run recorded for Demo 05 - Controlled outcome'] }}
+      when: (smoke_failed_history.json.count | default(0) | int) < 1
+
+    - name: Ensure report directory exists
+      ansible.builtin.file:
+        path: "{{ verify_report_dir }}"
+        state: directory
+        mode: "0755"
+
+    - name: Write smoke report
+      ansible.builtin.copy:
+        dest: "{{ verify_report_dir }}/smoke-{{ smoke_timestamp }}.md"
+        mode: "0644"
+        content: |
+          # Smoke verification report
+
+          - Target: {{ aap_hostname }}
+          - Timestamp: {{ smoke_timestamp }}
+          - Checks failed: {{ smoke_failures | length }}
+
+          {% if smoke_failures %}
+          ## Failures
+          {% for f in smoke_failures %}
+          - {{ f }}
+          {% endfor %}
+          {% else %}
+          All checks passed.
+          {% endif %}
+
+          RESULT: {{ 'FAIL' if smoke_failures else 'PASS' }}
+
+    - name: Fail when any smoke check failed
+      ansible.builtin.assert:
+        that: smoke_failures | length == 0
+        fail_msg: "Smoke verification failed: {{ smoke_failures }}"
