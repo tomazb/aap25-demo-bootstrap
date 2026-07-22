@@ -1,0 +1,7 @@
+requires_ansible: ">=2.15"
+action_groups:
+  controller:
+    - job_launch
+    - project_update
+    - workflow_launch
+    - inventory_source_update

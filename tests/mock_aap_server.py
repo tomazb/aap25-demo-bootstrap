@@ -15,6 +15,7 @@ argv[1] = port file. Scenarios:
 import base64
 import json
 import os
+import re
 import sys
 from http.server import BaseHTTPRequestHandler, HTTPServer
 from urllib.parse import urlparse, parse_qs
@@ -144,6 +145,44 @@ class Handler(BaseHTTPRequestHandler):
                         200, _list([{"id": 1, "status": "successful"}]))
             return self._send(200, _list([]))
 
+        # --- customer-functional readback endpoints (env-driven) ------------
+        # Job readback: returns the execution environment name for EE checks.
+        if re.match(r"^/api/controller/v2/jobs/\d+/$", path):
+            if os.environ.get("CUSTOMER_JOB_READ_FAIL"):
+                return self._send(500, {"detail": "readback boom"})
+            ee = os.environ.get("CUSTOMER_EE", "custom-ee")
+            return self._send(200, {
+                "id": int(path.rstrip("/").rsplit("/", 1)[1]),
+                "status": "successful",
+                "summary_fields": {"execution_environment": {"name": ee}}})
+
+        # Notification templates lookup (org-scoped, count controlled by env).
+        if path == "/api/controller/v2/notification_templates/":
+            n = int(os.environ.get("CUSTOMER_SNOW_MATCHES", "1"))
+            org = os.environ.get("CUSTOMER_SNOW_ORG", "PLACEHOLDER Org")
+            rows = [{"id": 900 + i, "name": name,
+                     "summary_fields": {"organization": {"name": org}}}
+                    for i in range(n)]
+            return self._send(200, _list(rows))
+
+        # Notification result poll.
+        if re.match(r"^/api/controller/v2/notifications/\d+/$", path):
+            return self._send(200, {
+                "id": int(path.rstrip("/").rsplit("/", 1)[1]),
+                "status": os.environ.get("CUSTOMER_SNOW_STATUS", "successful")})
+
+        # Enabled schedules (empty by default so the functional schedule check
+        # finds nothing to fault).
+        if path == "/api/controller/v2/schedules/":
+            return self._send(200, _list([]))
+
+        return self._send(404, {"detail": "not found"})
+
+    def do_POST(self):
+        path = urlparse(self.path).path
+        # Notification test launch -> 202 with a result id to poll.
+        if re.match(r"^/api/controller/v2/notification_templates/\d+/test/$", path):
+            return self._send(202, {"notification": 555, "id": 555})
         return self._send(404, {"detail": "not found"})
 
 
