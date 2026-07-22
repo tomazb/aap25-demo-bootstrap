@@ -56,14 +56,16 @@ the seeder alone does not do. Three verification layers were identified:
 Four new top-level playbooks (flat layout, matching `bootstrap.yml`), one
 shared task file, one filter plugin, one config file:
 
-```
+```text
 teardown.yml              # Layer 1: remove everything bootstrap.yml created
 verify_smoke.yml          # Layer 1: assert the bootstrap demo state exists & ran
 verify_parity.yml         # Layer 2: source vs target object diff
 verify_functional.yml     # Layer 3: run migrated content on the target
 config/verify.yml         # parity object-type map + functional check list
 tasks/paginated_get.yml   # shared: follow API pagination, accumulate results
-filter_plugins/parity.py  # normalize_objects / parity_diff / parity_summary
+filter_plugins/parity.py  # resolve_pagination_url / normalize_objects /
+                          # parity_diff / parity_compare / parity_failed /
+                          # parity_report
 tests/                    # pytest for the filter plugin + JSON fixtures
 reports/                  # gitignored run output
 ```

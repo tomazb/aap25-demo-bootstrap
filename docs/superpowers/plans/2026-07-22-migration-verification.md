@@ -1429,7 +1429,7 @@ git commit -m "Add functional verification playbook"
 
 Append after "## 6. Post-bootstrap checks" (before "## Security and lifecycle notes"):
 
-```markdown
+````markdown
 ## 7. Migration verification (RPM -> OpenShift)
 
 Three independent, pipeline-gateable playbooks support verifying an AAP
@@ -1484,7 +1484,7 @@ job fails at decryption. With no checks configured the playbook writes a
 report and exits 0, so it is safe in pipelines before curation. The report
 ends with a manual checklist (SSO/LDAP login, settings, instance groups,
 mesh topology) for what cannot be automated responsibly.
-```
+````
 
 - [ ] **Step 2: AGENTS.md updates**
 

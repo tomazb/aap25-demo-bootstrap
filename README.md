@@ -94,11 +94,20 @@ Verify in the unified UI:
 7. Jobs: successful runs plus one intentional failed run.
 8. Log in as `demo-alice` (Demo Linux team admin): only the Demo Linux inventory, project, and templates are visible and manageable; the other two organizations' content is not.
 
-## 7. Migration verification (RPM -> OpenShift)
+## 7. Migration verification (AAP 2.5 RPM -> AAP 2.5 on OpenShift)
 
-Three independent, pipeline-gateable playbooks support verifying an AAP
-migration from an RPM environment to AAP 2.5 on OpenShift. Each writes a
-Markdown report to `reports/` (gitignored) and exits non-zero on failure.
+Three independent, pipeline-gateable playbooks help **verify** a migration
+from **AAP 2.5 on RPM/RHEL (with the automation gateway)** to a fresh
+**AAP 2.5 on OpenShift**. This repository does not perform the platform or
+database migration — it seeds a lab and verifies a migration performed by
+another process. Source-side access is always read-only. Each playbook writes
+a Markdown report to `reports/` (gitignored) and exits non-zero on failure.
+
+All verification playbooks require an HTTPS endpoint with certificate
+validation before sending credentials (install private CA trust rather than
+disabling validation). Operational errors — API/transport failures,
+pagination truncation, duplicate normalized keys, missing/invalid fixtures —
+always fail the run, in every mode.
 
 ### Layer 1 - target smoke gate
 
@@ -109,29 +118,47 @@ ansible-playbook verify_smoke.yml     # asserts demo objects, sync and history
 ansible-playbook teardown.yml         # removes all demo content afterwards
 ```
 
-This proves gateway auth, RBAC, resource sync, SCM project sync, execution
-and job history end-to-end before real content arrives. Job history rows of
-deleted demo templates remain in the controller; that is controller
+This proves admin authentication, API availability, resource synchronization
+to the controller, SCM project sync state, execution, and job history for the
+**current** demo templates (history is queried by the resolved template id, so
+stale runs of a deleted/recreated template cannot satisfy the gate).
+
+It does **not** prove RBAC: every request authenticates as the admin user.
+Restricted-user authorization is a separate check (Phase 2). Job history rows
+of deleted demo templates remain in the controller; that is controller
 behavior, not an error.
 
 ### Layer 2 - content parity
 
 ```bash
-export SOURCE_AAP_HOSTNAME='https://rpm-controller.example.com'
+export SOURCE_AAP_HOSTNAME='https://rpm-gateway.example.com'   # source gateway
 export SOURCE_AAP_USERNAME='admin'
 export SOURCE_AAP_PASSWORD='REDACTED'
+# target uses AAP_HOSTNAME / AAP_USERNAME / AAP_PASSWORD
 ansible-playbook verify_parity.yml
 ```
 
-Compares organizations, users, teams, credentials (existence), projects,
-inventories, hosts, job templates, workflow job templates, schedules,
-notification templates, execution environments and labels between the RPM
-source (`/api/v2`) and the OCP target (gateway + controller APIs). Object
-types and compared fields are configured in `config/verify.yml`
-(`parity_types`); `parity_fail_on: none` turns the run report-only. Smart
-and constructed inventories are excluded from host comparison. Credential
-*secrets* cannot be compared through any API; a migrated `SECRET_KEY` is
-proven by Layer 3 instead.
+Compares organizations, users, teams (gateway routes), and credentials
+(existence), projects, inventories, hosts, job templates, workflow job
+templates, schedules, notification templates, execution environments and
+labels (controller routes) between the AAP 2.5 source and the AAP 2.5 OCP
+target. Object types, per-side key/field paths, and comparison scope are
+configured in `config/verify.yml` (`parity_types`). Org-scoped resources use
+organization-qualified keys so two objects with the same name in different
+organizations stay distinct; a duplicate normalized key is an operational
+error. Smart and constructed inventories are excluded from host comparison.
+Credential **secrets** cannot be compared through any API; a migrated
+`SECRET_KEY` is proven functionally by Layer 3 instead.
+
+`parity_fail_on` controls the exit code (the report always lists everything):
+
+- `missing` — fail when a source object is absent on the target; field
+  mismatches are reported but do not fail.
+- `drift` — fail on missing objects **or** field mismatches.
+- `none` — tolerate all content differences (operational errors still fail).
+
+Pagination is bounded by `parity_max_pages`; hitting the cap with more pages
+pending is treated as truncation and fails the run.
 
 ### Layer 3 - functional equivalence
 
@@ -142,12 +169,31 @@ project syncs, notification tests), then:
 ansible-playbook verify_functional.yml
 ```
 
-A launched job template that uses a migrated credential is the
-`SECRET_KEY` decrypt proof: with a wrong key the credential exists but the
-job fails at decryption. With no checks configured the playbook writes a
-report and exits 0, so it is safe in pipelines before curation. The report
-ends with a manual checklist (SSO/LDAP login, settings, instance groups,
-mesh topology) for what cannot be automated responsibly.
+A launched job template that uses a migrated credential is the `SECRET_KEY`
+decrypt proof: with a wrong key the credential exists but the job fails at
+decryption. With no checks configured the playbook writes a `RESULT: NOT_RUN`
+report and exits non-zero (NOT_RUN is not a PASS); pass
+`-e functional_allow_empty=true` to exit 0 for a pre-curation pipeline. The
+report ends with a manual checklist (SSO/LDAP login, settings, instance/
+container groups, mesh topology) for what cannot be automated responsibly.
+
+### Operator runbook
+
+1. Seed the AAP 2.5 RPM source with `bootstrap.yml` (or use existing content).
+2. Run `verify_smoke.yml` and curated `verify_functional.yml` against the
+   source; preserve the reports.
+3. Perform the migration using the approved migration process.
+4. Run `verify_parity.yml` (source -> target) and `verify_functional.yml`
+   against the target.
+5. Complete the manual checklist items.
+6. Preserve all reports as migration evidence.
+7. Tear down only the disposable `Demo` objects (`teardown.yml`).
+
+### Live acceptance status
+
+Offline tests pass in CI (unit, syntax, pagination, parity, smoke, functional).
+Live AAP 2.5 RPM-to-OpenShift acceptance remains outstanding; no live AAP
+result is claimed here.
 
 ## Security and lifecycle notes
 
