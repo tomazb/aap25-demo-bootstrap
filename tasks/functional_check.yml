@@ -59,13 +59,30 @@
         force_basic_auth: true
         validate_certs: "{{ aap_validate_certs }}"
         return_content: true
+        status_code: [200]
       register: functional_nt
+
+    - name: "Resolve org-scoped notification template {{ check.name }}"
+      ansible.builtin.set_fact:
+        functional_nt_matches: >-
+          {{ (functional_nt.json.results | default([]))
+             | selectattr('summary_fields.organization.name', 'equalto',
+                          check.organization) | list }}
+
+    - name: "Require exactly one notification template match"
+      ansible.builtin.assert:
+        that:
+          - (functional_nt_matches | length) == 1
+        fail_msg: >-
+          Expected exactly one notification template named
+          '{{ check.name }}' in organization '{{ check.organization }}',
+          found {{ functional_nt_matches | length }}.
 
     - name: "Fire test notification for {{ check.name }}"
       ansible.builtin.uri:
         url: >-
           {{ aap_hostname }}/api/controller/v2/notification_templates/{{
-          functional_nt.json.results[0].id }}/test/
+          functional_nt_matches[0].id }}/test/
         method: POST
         url_username: "{{ aap_username }}"
         url_password: "{{ aap_password }}"

@@ -16,7 +16,10 @@
       {{ (lookup('ansible.builtin.env', 'AAP_VALIDATE_CERTS') or 'true') | bool }}
     functional_failures: []
     functional_passed: []
+    functional_ran: false
     functional_timestamp: "{{ lookup('ansible.builtin.pipe', 'date -u +%Y%m%dT%H%M%SZ') }}"
+    # Lab-only escape hatch (see verify_smoke.yml). Default false.
+    functional_allow_insecure: false
 
   module_defaults:
     group/ansible.controller.controller:
@@ -25,13 +28,88 @@
       controller_password: "{{ aap_password }}"
       validate_certs: "{{ aap_validate_certs }}"
 
+  pre_tasks:
+    - name: Validate configuration and environment when checks are configured
+      when: functional_checks | length > 0
+      block:
+        - name: Require AAP credentials
+          ansible.builtin.assert:
+            that:
+              - aap_hostname | length > 0
+              - aap_username | length > 0
+              - aap_password | length > 0
+            fail_msg: >-
+              Functional checks are configured but AAP_HOSTNAME/AAP_USERNAME/
+              AAP_PASSWORD are not all set.
+
+        - name: Require secure transport before sending credentials
+          ansible.builtin.assert:
+            that:
+              - aap_hostname is match('^https://')
+              - aap_validate_certs | bool
+            fail_msg: >-
+              Export an HTTPS AAP_HOSTNAME and keep certificate validation
+              enabled. Set -e functional_allow_insecure=true only for a
+              throwaway lab.
+          when: not (functional_allow_insecure | bool)
+
+        - name: Validate functional_checks is a list of well-formed entries
+          ansible.builtin.assert:
+            that:
+              - functional_checks is sequence
+              - item.type is defined
+              - item.type in ['job_template', 'project_update', 'notification_test']
+              - item.name is defined
+              - item.type != 'notification_test' or item.organization is defined
+            fail_msg: >-
+              Malformed functional_checks entry: {{ item }}. Each entry needs a
+              supported type and name; notification_test also needs organization.
+          loop: "{{ functional_checks }}"
+          loop_control:
+            label: "{{ item.type | default('?') }}: {{ item.name | default('?') }}"
+
   tasks:
-    - name: Note when no functional checks are configured
-      ansible.builtin.debug:
-        msg: >-
-          functional_checks is empty; configure per-migration checks in
-          config/verify.yml. Writing report and exiting successfully.
+    - name: Report NOT_RUN when no functional checks are configured
       when: functional_checks | length == 0
+      block:
+        - name: Ensure report directory exists (empty run)
+          ansible.builtin.file:
+            path: "{{ verify_report_dir }}"
+            state: directory
+            mode: "0755"
+
+        - name: Write NOT_RUN report
+          ansible.builtin.copy:
+            dest: "{{ verify_report_dir }}/functional-{{ functional_timestamp }}.md"
+            mode: "0644"
+            content: |
+              # Functional verification report
+
+              - Target: {{ aap_hostname }}
+              - Timestamp: {{ functional_timestamp }}
+              - Checks configured: 0
+
+              No functional checks configured (config/verify.yml
+              functional_checks). Nothing was launched. NOT_RUN is not a PASS.
+
+              RESULT: NOT_RUN
+
+        - name: Fail unless empty runs are explicitly allowed
+          ansible.builtin.assert:
+            that:
+              - functional_allow_empty | bool
+            fail_msg: >-
+              No functional checks configured. Configure functional_checks in
+              config/verify.yml, or pass -e functional_allow_empty=true to
+              accept a NOT_RUN result (exit 0). NOT_RUN is never reported as
+              PASS.
+
+        - name: End play after NOT_RUN report
+          ansible.builtin.meta: end_play
+
+    - name: Mark that functional checks ran
+      ansible.builtin.set_fact:
+        functional_ran: true
 
     - name: Run configured functional checks
       ansible.builtin.include_tasks: tasks/functional_check.yml
@@ -39,28 +117,46 @@
       loop_control:
         loop_var: check
         label: "{{ check.type }}: {{ check.name }}"
-      when: functional_checks | length > 0
 
-    - name: Check enabled schedules have next_run populated
-      ansible.builtin.uri:
-        url: "{{ aap_hostname }}/api/controller/v2/schedules/?enabled=true&page_size=200"
-        url_username: "{{ aap_username }}"
-        url_password: "{{ aap_password }}"
-        force_basic_auth: true
-        validate_certs: "{{ aap_validate_certs }}"
-        return_content: true
-      register: functional_schedules
-      when: functional_checks | length > 0
-
-    - name: Record schedules without next_run
-      ansible.builtin.set_fact:
-        functional_failures: >-
-          {{ functional_failures + ['schedule has no next_run: ' ~ item.name] }}
-      loop: "{{ (functional_schedules.json.results | default([]))
-                | selectattr('next_run', 'none') | list }}"
-      loop_control:
-        label: "{{ item.name }}"
-      when: functional_checks | length > 0
+    - name: Verify enabled schedules have next_run populated
+      block:
+        - name: Page through enabled schedules
+          ansible.builtin.set_fact:
+            pg_results: []
+            pg_next: /api/controller/v2/schedules/?enabled=true&page_size=200
+            pg_pages: 0
+            pg_error: ""
+            pg_truncated: false
+            pg_host: "{{ aap_hostname }}"
+            pg_user: "{{ aap_username }}"
+            pg_password: "{{ aap_password }}"
+            pg_validate_certs: "{{ aap_validate_certs }}"
+        - ansible.builtin.include_tasks: tasks/paginated_get.yml
+        - name: Record schedule-query failure or truncation
+          ansible.builtin.set_fact:
+            functional_failures: >-
+              {{ functional_failures + [
+                 'schedule query failed: ' ~ pg_error if pg_error | length > 0
+                 else 'schedule query truncated at ' ~ parity_max_pages
+                      ~ ' pages'] }}
+          when: pg_error | length > 0 or (pg_truncated | bool)
+        - name: Record enabled schedules without next_run
+          ansible.builtin.set_fact:
+            functional_failures: >-
+              {{ functional_failures + ['schedule has no next_run: ' ~ item.name] }}
+          loop: "{{ pg_results | selectattr('next_run', 'none') | list }}"
+          loop_control:
+            label: "{{ item.name }}"
+          when:
+            - pg_error | length == 0
+            - not (pg_truncated | bool)
+      rescue:
+        - name: Record schedule verification exception
+          ansible.builtin.set_fact:
+            functional_failures: >-
+              {{ functional_failures + ['schedule verification error: '
+                 ~ (ansible_failed_result.msg | default('unknown')
+                    | regex_replace('https?://[^ ]+', '<url>'))] }}
 
     - name: Ensure report directory exists
       ansible.builtin.file:
@@ -80,10 +176,8 @@
           - Checks configured: {{ functional_checks | length }}
           - Passed: {{ functional_passed | length }}
           - Failed: {{ functional_failures | length }}
-
-          {% if functional_checks | length == 0 %}
-          No functional checks configured (config/verify.yml
-          functional_checks). Nothing was launched.
+          {% if functional_allow_insecure | bool %}
+          - **UNSAFE: functional_allow_insecure=true — TLS/cert checks bypassed. Lab only.**
           {% endif %}
           {% for p in functional_passed %}
           - PASS: {{ p }}
