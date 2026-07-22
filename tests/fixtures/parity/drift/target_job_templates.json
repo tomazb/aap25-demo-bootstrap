@@ -1,0 +1,6 @@
+[
+  {"name": "Deploy", "playbook": "deploy.yml",
+   "summary_fields": {"organization": {"name": "Org A"}, "project": {"name": "Proj A"}}},
+  {"name": "Deploy", "playbook": "CHANGED.yml",
+   "summary_fields": {"organization": {"name": "Org B"}, "project": {"name": "Proj B"}}}
+]

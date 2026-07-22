@@ -51,15 +51,15 @@ def test_diff_clean():
 
 
 def test_report_fail_and_pass():
-    results = {"projects": {"missing_on_target": ["P1"],
-                            "extra_on_target": [], "field_mismatches": []}}
+    results = {"projects": {"missing_on_target": ["P1"], "extra_on_target": [],
+                            "field_mismatches": [], "errors": []}}
     meta = {"source": "s", "target": "t", "timestamp": "T", "fail_on": "missing"}
     md = parity_report(results, meta)
     assert "RESULT: FAIL" in md and "P1" in md and "projects" in md
     meta["fail_on"] = "none"
     assert "RESULT: PASS" in parity_report(results, meta)
     clean = {"projects": {"missing_on_target": [], "extra_on_target": [],
-                          "field_mismatches": []}}
+                          "field_mismatches": [], "errors": []}}
     meta["fail_on"] = "missing"
     assert "RESULT: PASS" in parity_report(clean, meta)
 
@@ -140,3 +140,106 @@ def test_resolve_preserves_encoded_query():
 def test_resolve_collapses_duplicate_slashes_in_path_only():
     got = resolve_pagination_url(HOST, "/api//v2///x/?a=b//c")
     assert got == "https://target.example.com/api/v2/x/?a=b//c"
+
+
+# --- duplicate detection, compare, and fail modes ---------------------------
+
+from parity import parity_compare, parity_failed, parity_error_result
+
+
+def test_normalize_objects_raises_on_duplicate():
+    import pytest
+    rows = [{"name": "dup", "organization": "A"},
+            {"name": "dup", "organization": "B"}]
+    with pytest.raises(ValueError):
+        normalize_objects(rows, key="name")
+
+
+def test_compound_key_keeps_same_name_distinct_across_orgs():
+    rows = [
+        {"name": "Deploy", "summary_fields": {"organization": {"name": "Org A"}}},
+        {"name": "Deploy", "summary_fields": {"organization": {"name": "Org B"}}},
+    ]
+    out = normalize_objects(
+        rows, key=["summary_fields.organization.name", "name"])
+    assert set(out) == {"Org A / Deploy", "Org B / Deploy"}
+
+
+def test_compare_detects_duplicate_as_error():
+    src = [{"name": "x", "org": "A"}, {"name": "x", "org": "B"}]
+    tgt = [{"name": "x", "org": "A"}]
+    spec = {"key": "name"}
+    r = parity_compare(src, tgt, spec)
+    assert any("duplicate" in e for e in r["errors"])
+
+
+def test_compare_separate_source_target_keys_and_fields():
+    # Source exposes org via a different path than target.
+    src = [{"name": "P", "org_name": "A", "branch": "main"}]
+    tgt = [{"name": "P",
+            "summary_fields": {"organization": {"name": "A"}}, "branch": "dev"}]
+    spec = {
+        "source_key": ["org_name", "name"],
+        "target_key": ["summary_fields.organization.name", "name"],
+        "source_fields": {"branch": "branch"},
+        "target_fields": {"branch": "branch"},
+    }
+    r = parity_compare(src, tgt, spec)
+    assert r["missing_on_target"] == []
+    assert r["field_mismatches"] == [
+        {"key": "A / P", "field": "branch", "source": "main", "target": "dev"}]
+
+
+def test_compare_missing_and_extra():
+    src = [{"name": "a"}, {"name": "b"}]
+    tgt = [{"name": "a"}, {"name": "c"}]
+    r = parity_compare(src, tgt, {"key": "name"})
+    assert r["missing_on_target"] == ["b"]
+    assert r["extra_on_target"] == ["c"]
+    assert r["errors"] == []
+
+
+def _res(missing=None, mismatch=None, errors=None):
+    return {"missing_on_target": missing or [], "extra_on_target": [],
+            "field_mismatches": mismatch or [], "errors": errors or []}
+
+
+def test_fail_modes_missing():
+    r = {"t": _res(missing=["x"])}
+    assert parity_failed(r, "missing") is True
+    assert parity_failed({"t": _res(mismatch=[{"key": "x"}])}, "missing") is False
+
+
+def test_fail_modes_drift():
+    assert parity_failed({"t": _res(mismatch=[{"key": "x"}])}, "drift") is True
+    assert parity_failed({"t": _res(missing=["x"])}, "drift") is True
+    assert parity_failed({"t": _res()}, "drift") is False
+
+
+def test_fail_modes_none_tolerates_content_but_not_errors():
+    assert parity_failed({"t": _res(missing=["x"], mismatch=[{"k": 1}])}, "none") is False
+    assert parity_failed({"t": _res(errors=["boom"])}, "none") is True
+
+
+def test_operational_error_fails_every_mode():
+    for mode in ("missing", "drift", "none"):
+        assert parity_failed({"t": _res(errors=["op"])}, mode) is True
+
+
+def test_empty_results_fails():
+    assert parity_failed({}, "none") is True
+
+
+def test_error_result_helper():
+    r = parity_error_result("no source rows")
+    assert r["errors"] == ["no source rows"]
+    assert parity_failed({"t": r}, "none") is True
+
+
+def test_report_lists_operational_errors_section():
+    results = {"projects": parity_error_result("source retrieval failed: HTTP 500")}
+    md = parity_report(results, {"fail_on": "none", "source": "s",
+                                 "target": "t", "timestamp": "T"})
+    assert "Operational errors" in md
+    assert "HTTP 500" in md
+    assert "RESULT: FAIL" in md
