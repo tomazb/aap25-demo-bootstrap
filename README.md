@@ -124,7 +124,7 @@ to the controller, SCM project sync state, execution, and job history for the
 stale runs of a deleted/recreated template cannot satisfy the gate).
 
 It does **not** prove RBAC: every request authenticates as the admin user.
-Restricted-user authorization is a separate check (Phase 2). Job history rows
+Restricted-user authorization must be verified separately. Job history rows
 of deleted demo templates remain in the controller; that is controller
 behavior, not an error.
 
