@@ -94,6 +94,61 @@ Verify in the unified UI:
 7. Jobs: successful runs plus one intentional failed run.
 8. Log in as `demo-alice` (Demo Linux team admin): only the Demo Linux inventory, project, and templates are visible and manageable; the other two organizations' content is not.
 
+## 7. Migration verification (RPM -> OpenShift)
+
+Three independent, pipeline-gateable playbooks support verifying an AAP
+migration from an RPM environment to AAP 2.5 on OpenShift. Each writes a
+Markdown report to `reports/` (gitignored) and exits non-zero on failure.
+
+### Layer 1 - target smoke gate
+
+Run `bootstrap.yml` against the OCP target, then:
+
+```bash
+ansible-playbook verify_smoke.yml     # asserts demo objects, sync and history
+ansible-playbook teardown.yml         # removes all demo content afterwards
+```
+
+This proves gateway auth, RBAC, resource sync, SCM project sync, execution
+and job history end-to-end before real content arrives. Job history rows of
+deleted demo templates remain in the controller; that is controller
+behavior, not an error.
+
+### Layer 2 - content parity
+
+```bash
+export SOURCE_AAP_HOSTNAME='https://rpm-controller.example.com'
+export SOURCE_AAP_USERNAME='admin'
+export SOURCE_AAP_PASSWORD='REDACTED'
+ansible-playbook verify_parity.yml
+```
+
+Compares organizations, users, teams, credentials (existence), projects,
+inventories, hosts, job templates, workflow job templates, schedules,
+notification templates, execution environments and labels between the RPM
+source (`/api/v2`) and the OCP target (gateway + controller APIs). Object
+types and compared fields are configured in `config/verify.yml`
+(`parity_types`); `parity_fail_on: none` turns the run report-only. Smart
+and constructed inventories are excluded from host comparison. Credential
+*secrets* cannot be compared through any API; a migrated `SECRET_KEY` is
+proven by Layer 3 instead.
+
+### Layer 3 - functional equivalence
+
+Curate `functional_checks` in `config/verify.yml` (job template launches,
+project syncs, notification tests), then:
+
+```bash
+ansible-playbook verify_functional.yml
+```
+
+A launched job template that uses a migrated credential is the
+`SECRET_KEY` decrypt proof: with a wrong key the credential exists but the
+job fails at decryption. With no checks configured the playbook writes a
+report and exits 0, so it is safe in pipelines before curation. The report
+ends with a manual checklist (SSO/LDAP login, settings, instance groups,
+mesh topology) for what cannot be automated responsibly.
+
 ## Security and lifecycle notes
 
 - Do not insert demo records directly into PostgreSQL.
