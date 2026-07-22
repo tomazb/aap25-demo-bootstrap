@@ -11,6 +11,7 @@ Scenarios (all under http://127.0.0.1:<port>):
   /err401/            HTTP 401
   /err500/            HTTP 500
   /badjson/           HTTP 200 with a non-JSON body
+  /nonext/            HTTP 200 JSON with results but NO 'next' key
   /cap/               endless pages (each next points to the next page)
 """
 import json
@@ -58,6 +59,9 @@ class Handler(BaseHTTPRequestHandler):
             self._send(500, {"detail": "boom"})
         elif path == "/badjson/":
             self._send(200, "this is not json", raw=True)
+        elif path == "/nonext/":
+            # 200 JSON with results but no 'next' key at all.
+            self._send(200, {"count": 1, "results": [{"name": "nonext-row-1"}]})
         elif path == "/cap/":
             # Never terminates on its own; used to test page-cap truncation.
             self._send(200, _page(host, path, page, 10 ** 9, False))

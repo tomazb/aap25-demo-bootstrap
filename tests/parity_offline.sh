@@ -2,8 +2,8 @@
 # Offline end-to-end tests of the parity pipeline using fixtures. No AAP,
 # no network. Each scenario restricts the run to job_templates via
 # parity_only_types and asserts exit code + report content.
-set -uo pipefail
-cd "$(dirname "$0")/.."
+set -euo pipefail
+cd "$(dirname "$0")/.." || exit 1
 reportdir=".tmp/parity-reports"
 rm -rf "$reportdir"; mkdir -p "$reportdir"
 
