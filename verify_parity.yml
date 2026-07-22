@@ -1,0 +1,82 @@
+---
+- name: Compare source (RPM) and target (OCP) AAP content
+  hosts: localhost
+  connection: local
+  gather_facts: false
+
+  vars_files:
+    - config/verify.yml
+
+  vars:
+    source_hostname: >-
+      {{ lookup('ansible.builtin.env', 'SOURCE_AAP_HOSTNAME') | regex_replace('/+$', '') }}
+    source_username: "{{ lookup('ansible.builtin.env', 'SOURCE_AAP_USERNAME') }}"
+    source_password: "{{ lookup('ansible.builtin.env', 'SOURCE_AAP_PASSWORD') }}"
+    source_validate_certs: >-
+      {{ (lookup('ansible.builtin.env', 'SOURCE_AAP_VALIDATE_CERTS') or 'true') | bool }}
+    target_hostname: >-
+      {{ lookup('ansible.builtin.env', 'AAP_HOSTNAME') | regex_replace('/+$', '') }}
+    target_username: "{{ lookup('ansible.builtin.env', 'AAP_USERNAME') }}"
+    target_password: "{{ lookup('ansible.builtin.env', 'AAP_PASSWORD') }}"
+    target_validate_certs: >-
+      {{ (lookup('ansible.builtin.env', 'AAP_VALIDATE_CERTS') or 'true') | bool }}
+    parity_results: {}
+    parity_timestamp: "{{ lookup('ansible.builtin.pipe', 'date -u +%Y%m%dT%H%M%SZ') }}"
+
+  pre_tasks:
+    - name: Validate required inputs
+      ansible.builtin.assert:
+        that:
+          - parity_fixture_dir is defined or
+            (source_hostname | length > 0 and source_username | length > 0
+             and source_password | length > 0)
+          - parity_fixture_dir is defined or
+            (target_hostname | length > 0 and target_username | length > 0
+             and target_password | length > 0)
+        fail_msg: >-
+          Export SOURCE_AAP_HOSTNAME/SOURCE_AAP_USERNAME/SOURCE_AAP_PASSWORD
+          (RPM source) and AAP_HOSTNAME/AAP_USERNAME/AAP_PASSWORD (OCP
+          target), or set -e parity_fixture_dir=<dir> for offline mode.
+
+  tasks:
+    - name: Compare each enabled object type
+      ansible.builtin.include_tasks: tasks/parity_type.yml
+      loop: "{{ parity_types | dict2items | selectattr('value.enabled') | list }}"
+      loop_control:
+        loop_var: parity_item
+        label: "{{ parity_item.key }}"
+
+    - name: Ensure report directory exists
+      ansible.builtin.file:
+        path: "{{ verify_report_dir }}"
+        state: directory
+        mode: "0755"
+
+    - name: Write parity reports
+      ansible.builtin.copy:
+        dest: "{{ verify_report_dir }}/parity-{{ parity_timestamp }}.{{ item.ext }}"
+        mode: "0644"
+        content: "{{ item.content }}"
+      loop:
+        - ext: json
+          content: "{{ parity_results | to_nice_json }}"
+        - ext: md
+          content: >-
+            {{ parity_results | parity_report({'source': source_hostname or 'fixtures',
+               'target': target_hostname or 'fixtures',
+               'timestamp': parity_timestamp,
+               'fail_on': parity_fail_on}) }}
+      loop_control:
+        label: "parity-{{ parity_timestamp }}.{{ item.ext }}"
+
+    - name: Fail when parity is broken
+      ansible.builtin.assert:
+        that: >-
+          parity_fail_on != 'missing'
+          or (parity_results | dict2items
+              | selectattr('value.missing_on_target') | list | length == 0
+              and parity_results | dict2items
+              | selectattr('value.field_mismatches') | list | length == 0)
+        fail_msg: >-
+          Content parity failed; see
+          {{ verify_report_dir }}/parity-{{ parity_timestamp }}.md

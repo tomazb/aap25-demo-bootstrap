@@ -1,0 +1,8 @@
+[
+  {"name": "P Kept", "scm_type": "git",
+   "scm_url": "https://git.example/kept.git", "scm_branch": "main"},
+  {"name": "P Lost", "scm_type": "git",
+   "scm_url": "https://git.example/lost.git", "scm_branch": "main"},
+  {"name": "P Drift", "scm_type": "git",
+   "scm_url": "https://git.example/drift.git", "scm_branch": "main"}
+]
