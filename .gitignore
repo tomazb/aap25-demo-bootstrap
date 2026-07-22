@@ -4,6 +4,14 @@ config/secrets.yml
 # Ansible runtime artifacts
 *.retry
 .tmp/
+.ansible/
 
 # Verification run output
 reports/
+
+# Python
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.coverage
+htmlcov/

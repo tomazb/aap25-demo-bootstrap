@@ -1,0 +1,49 @@
+name: CI
+
+# Deterministic, fully offline verification. No live AAP, no Red Hat
+# credentials, no Automation Hub, no Galaxy downloads, no customer secrets.
+on:
+  push:
+    branches: [main, worktree-migration-verification, customer-shaped-migration-lab]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  offline-checks:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install pinned tooling (AAP 2.5-compatible ansible-core)
+        run: |
+          python -m pip install --upgrade pip
+          # ansible-core 2.16 matches the AAP 2.5 tooling line; do NOT add
+          # AAP 2.6 collections. PyYAML comes in as a dependency.
+          pip install "ansible-core==2.16.14" "pytest==8.4.2"
+
+      - name: Unit tests (pure-Python filters)
+        run: python3 -m pytest tests/ -v
+
+      - name: Shell script syntax
+        run: bash -n tests/*.sh
+
+      - name: Offline playbook syntax check
+        run: tests/syntax_check.sh
+
+      - name: Pagination integration (local server)
+        run: tests/pagination_offline.sh
+
+      - name: Parity pipeline (fixtures)
+        run: tests/parity_offline.sh
+
+      - name: Smoke verification (mock AAP)
+        run: tests/smoke_offline.sh
+
+      - name: Functional NOT_RUN semantics
+        run: tests/functional_offline.sh
