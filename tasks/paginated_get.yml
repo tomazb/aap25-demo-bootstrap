@@ -7,7 +7,8 @@
 #   pg_next: "<path>"       # first request path, e.g. /api/v2/x/?page_size=200
 #   pg_pages: 0             # pages fetched so far
 #   pg_error: ""            # non-empty => an operational failure occurred
-#   pg_truncated: false     # true => stopped at parity_max_pages with more left
+#   pg_truncated: false     # true => stopped at the page cap with more left
+#   pg_max_pages (optional): page cap; defaults to parity_max_pages, then 100
 #   pg_host: "<url>"        # trusted origin (scheme+host+port)
 #   pg_user / pg_password / pg_validate_certs
 #
@@ -81,7 +82,7 @@
   when:
     - pg_error | length == 0
     - pg_next | length > 0
-    - (pg_pages | int) >= (parity_max_pages | default(100) | int)
+    - (pg_pages | int) >= (pg_max_pages | default(parity_max_pages | default(100)) | int)
 
 - name: Fetch next page
   ansible.builtin.include_tasks: paginated_get.yml
@@ -89,4 +90,4 @@
     - pg_error | length == 0
     - not (pg_truncated | default(false) | bool)
     - pg_next | length > 0
-    - (pg_pages | int) < (parity_max_pages | default(100) | int)
+    - (pg_pages | int) < (pg_max_pages | default(parity_max_pages | default(100)) | int)

@@ -1,42 +1,77 @@
 ---
-# Verify one restricted user's visibility. rbac_user = {username, organization}.
-# Authenticates AS the user and confirms other organizations' content is not
-# visible in list results. The password is never printed.
-- name: "{{ rbac_user.username }}: list job templates as the user"
-  ansible.builtin.uri:
-    url: "{{ aap_hostname }}/api/controller/v2/job_templates/?page_size=200"
-    url_username: "{{ rbac_user.username }}"
-    url_password: "{{ rbac_password }}"
-    force_basic_auth: true
-    validate_certs: "{{ aap_validate_certs }}"
-    return_content: true
-    status_code: [200]
-  register: rbac_jt
-  failed_when: false
-  no_log: true
+# Verify one restricted user's visibility, positive AND negative.
+# rbac_user = {username, organization, expected_job_templates, forbidden_organizations}
+# Authenticates AS the user, follows ALL pages, and asserts:
+#   * every expected template is visible exactly once and in the right org
+#   * no template from a forbidden organization is visible
+# The password is never printed (no_log on the paged request).
+- name: "{{ rbac_user.username }}: page through visible job templates"
+  ansible.builtin.set_fact:
+    pg_results: []
+    pg_next: /api/controller/v2/job_templates/?page_size=200
+    pg_pages: 0
+    pg_error: ""
+    pg_truncated: false
+    pg_host: "{{ aap_hostname }}"
+    pg_user: "{{ rbac_user.username }}"
+    pg_password: "{{ rbac_password }}"
+    pg_validate_certs: "{{ aap_validate_certs }}"
+    pg_max_pages: "{{ rbac_max_pages | default(50) }}"
 
-- name: "{{ rbac_user.username }}: record auth/list failure"
+- name: "{{ rbac_user.username }}: fetch pages (as the user)"
+  ansible.builtin.include_tasks: tasks/paginated_get.yml
+
+- name: "{{ rbac_user.username }}: record retrieval error or truncation"
   ansible.builtin.set_fact:
     rbac_failures: >-
-      {{ rbac_failures + ['restricted-user list failed for '
-         ~ rbac_user.username ~ ' (status='
-         ~ (rbac_jt.status | default('unreachable')) ~ ')'] }}
-  when: (rbac_jt.status | default(0) | int) != 200
+      {{ rbac_failures + [
+         'restricted-user listing failed for ' ~ rbac_user.username ~ ': '
+         ~ pg_error if pg_error | length > 0
+         else 'restricted-user listing truncated for ' ~ rbac_user.username
+              ~ ' at the page cap'] }}
+  when: pg_error | length > 0 or (pg_truncated | bool)
 
-- name: "{{ rbac_user.username }}: record any cross-organization visibility"
-  ansible.builtin.set_fact:
-    rbac_failures: >-
-      {{ rbac_failures + ['user ' ~ rbac_user.username
-         ~ ' can see content from other organizations: '
-         ~ (rbac_foreign | map(attribute='summary_fields.organization.name')
-            | unique | join(', '))] }}
-  vars:
-    rbac_foreign: >-
-      {{ (rbac_jt.json.results | default([]))
-         | rejectattr('summary_fields.organization.name', 'equalto',
-                      rbac_user.organization) | list }}
+# Only evaluate visibility on a complete, error-free result.
+- name: "{{ rbac_user.username }}: evaluate visibility"
   when:
-    - (rbac_jt.status | default(0) | int) == 200
-    - (rbac_jt.json.results | default([]))
-      | rejectattr('summary_fields.organization.name', 'equalto',
-                   rbac_user.organization) | list | length > 0
+    - pg_error | length == 0
+    - not (pg_truncated | bool)
+  block:
+    - name: "{{ rbac_user.username }}: negative — no forbidden-org content"
+      ansible.builtin.set_fact:
+        rbac_failures: >-
+          {{ rbac_failures + ['user ' ~ rbac_user.username
+             ~ ' can see forbidden-organization content: '
+             ~ (rbac_forbidden_hits
+                | map(attribute='summary_fields.organization.name')
+                | unique | join(', '))] }}
+      vars:
+        rbac_forbidden_hits: >-
+          {{ pg_results | selectattr('summary_fields.organization.name',
+             'in', rbac_user.forbidden_organizations | default([])) | list }}
+      when:
+        - (pg_results | selectattr('summary_fields.organization.name', 'in',
+           rbac_user.forbidden_organizations | default([])) | list | length) > 0
+
+    - name: "{{ rbac_user.username }}: positive — each expected template visible once in-org"
+      ansible.builtin.set_fact:
+        rbac_failures: >-
+          {{ rbac_failures + [rbac_positive_problem] }}
+      vars:
+        rbac_matches: >-
+          {{ pg_results | selectattr('name', 'equalto', item)
+             | selectattr('summary_fields.organization.name', 'equalto',
+                          rbac_user.organization) | list }}
+        rbac_positive_problem: >-
+          {{ 'expected template not visible to ' ~ rbac_user.username
+             ~ ' in ' ~ rbac_user.organization ~ ': ' ~ item
+             if (rbac_matches | length) == 0
+             else 'expected template ambiguous (duplicate) for '
+                  ~ rbac_user.username ~ ': ' ~ item }}
+      loop: "{{ rbac_user.expected_job_templates }}"
+      loop_control:
+        label: "{{ item }}"
+      when: >-
+        (pg_results | selectattr('name', 'equalto', item)
+         | selectattr('summary_fields.organization.name', 'equalto',
+                      rbac_user.organization) | list | length) != 1

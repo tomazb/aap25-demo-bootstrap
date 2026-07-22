@@ -60,6 +60,44 @@ class Handler(BaseHTTPRequestHandler):
         self.end_headers()
         self.wfile.write(json.dumps(body).encode())
 
+    @staticmethod
+    def _jt(org, tname):
+        return {"name": tname, "id": 1,
+                "summary_fields": {"organization": {"name": org}}}
+
+    def _rbac_list(self, scen, path, q):
+        """Env-driven RBAC pagination scenarios for verify_rbac.yml tests."""
+        page = int(q.get("page", ["1"])[0])
+        host = self.headers.get("Host", "127.0.0.1")
+        nxt = "http://%s%s?page=%d" % (host, path, page + 1)
+        L1 = self._jt("Demo Linux", "Demo 01 - Linux hello")
+        L2 = self._jt("Demo Linux", "Demo 02 - Linux inventory report")
+        NET = self._jt("Demo Network", "Demo 03 - Network discovery simulation")
+        if scen == "missing_expected":
+            return self._send(200, _list([L1]))
+        if scen == "forbidden":
+            return self._send(200, _list([L1, L2, NET]))
+        if scen == "empty":
+            return self._send(200, _list([]))
+        if scen == "http_error":
+            return self._send(500, {"detail": "rbac boom"})
+        if scen == "no_next":
+            return self._send(200, {"count": 2, "results": [L1, L2]})
+        if scen == "truncate":
+            body = {"count": 999, "next": nxt, "previous": None, "results": [L1]}
+            return self._send(200, body)
+        if scen in ("twopage", "foreign_page2", "expected_page2"):
+            pages = {
+                "twopage": ([L1], [L2]),
+                "foreign_page2": ([L1, L2], [NET]),
+                "expected_page2": ([L1], [L2]),
+            }[scen]
+            if page == 1:
+                return self._send(200, {"count": 2, "next": nxt,
+                                        "previous": None, "results": pages[0]})
+            return self._send(200, _list(pages[1]))
+        return self._send(200, _list([L1, L2]))
+
     def _auth_user(self):
         hdr = self.headers.get("Authorization", "")
         if hdr.startswith("Basic "):
@@ -79,6 +117,9 @@ class Handler(BaseHTTPRequestHandler):
         # Restricted-user RBAC: an unfiltered job-template list is scoped to the
         # authenticated user's own organization (admin/unknown sees all).
         if path == "/api/controller/v2/job_templates/" and name is None:
+            scen = os.environ.get("RBAC_SCENARIO")
+            if scen:
+                return self._rbac_list(scen, path, q)
             who = self._auth_user()
             if who in USER_ORG:
                 org = USER_ORG[who]
