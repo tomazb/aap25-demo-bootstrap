@@ -75,19 +75,41 @@
 - name: "ssh_canary_job: {{ check.name }}"
   when: check.type == 'ssh_canary_job'
   block:
-    - name: "Guard: real managed-host checks must be explicitly allowed"
+    # Multiple independent gates run BEFORE job_launch. The exact-allowlist
+    # membership is the primary control; the broad-pattern rejections are
+    # defense in depth. A guard failure records a sanitized message and never
+    # reaches the launch module, so no real host is contacted.
+    - name: "Guard SSH canary target for {{ check.name }}"
       ansible.builtin.assert:
         that:
           - allow_real_managed_host_checks | default(false) | bool
+          - ssh_canary_allowlist is sequence
+          - ssh_canary_allowlist is not string
+          - ssh_canary_allowlist is not mapping
+          - check.organization is defined
+          - check.organization is string
+          - (check.organization | trim | length) > 0
+          - check.limit is defined
+          - check.limit is string
+          - (check.limit | trim | length) > 0
+          - (check.limit | trim | lower) not in ['all', '*', '@all']
+          - "'*' not in check.limit"
+          - "',' not in check.limit"
+          - "':' not in check.limit"
+          - "'&' not in check.limit"
+          - "'!' not in check.limit"
+          - (check.limit | trim) in ssh_canary_allowlist
         fail_msg: >-
-          ssh_canary_job contacts a real host. Set
-          -e allow_real_managed_host_checks=true and target only a disposable
-          canary host to run it.
+          ssh_canary_job '{{ check.name | default('?') }}' blocked by a safety
+          gate. It requires allow_real_managed_host_checks=true and a
+          check.limit that is a single, non-broad host exactly present in
+          ssh_canary_allowlist. Broad targets (all, *, @all, patterns with
+          * , : & !) are rejected.
     - name: "Launch SSH canary job {{ check.name }}"
       ansible.controller.job_launch:
         name: "{{ check.name }}"
         organization: "{{ check.organization }}"
-        limit: "{{ check.limit | default(omit) }}"
+        limit: "{{ check.limit }}"
         extra_vars: "{{ check.extra_vars | default(omit) }}"
         wait: true
         interval: 5
@@ -99,9 +121,12 @@
           {{ functional_passed + ['ssh_canary_job ' ~ check.name
              ~ ' (job ' ~ functional_canary.id ~ ')'] }}
   rescue:
-    - ansible.builtin.set_fact:
+    - name: "Record ssh_canary_job block/failure: {{ check.name }}"
+      ansible.builtin.set_fact:
         functional_failures: >-
-          {{ functional_failures + ['ssh_canary_job ' ~ check.name ~ ' failed'] }}
+          {{ functional_failures + ['ssh_canary_job ' ~ check.name
+             ~ ': ' ~ (ansible_failed_result.msg | default('guard failed')
+                | regex_replace('https?://[^ ]+', '<url>'))] }}
 
 # Launch a job that uses a CyberArk-backed external credential. A successful
 # target operation is the proof; secret values are never retrieved or reported.

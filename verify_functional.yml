@@ -29,6 +29,42 @@
     functional_timestamp: "{{ lookup('ansible.builtin.pipe', 'date -u +%Y%m%dT%H%M%SZ') }}"
     # Lab-only escape hatch (see verify_smoke.yml). Default false.
     functional_allow_insecure: false
+    # SSH canary safety: OFF by default, and the limit must be allowlisted.
+    allow_real_managed_host_checks: false
+    ssh_canary_allowlist: []
+    # Per-type validation. required = must be present; string_required = must be
+    # a non-empty string. Data-driven so new types add a row, not a code block.
+    functional_field_specs:
+      job_template:
+        required: [organization]
+        string_required: [organization]
+      project_update:
+        required: []
+        string_required: []
+      notification_test:
+        required: [organization]
+        string_required: [organization]
+      private_scm_project_update:
+        required: [organization]
+        string_required: [organization]
+      execution_environment_job:
+        required: [organization, execution_environment]
+        string_required: [organization, execution_environment]
+      ssh_canary_job:
+        required: [organization, limit]
+        string_required: [organization, limit]
+      external_credential_job:
+        required: [organization]
+        string_required: [organization]
+      workflow_launch:
+        required: [organization]
+        string_required: [organization]
+      inventory_source_update:
+        required: [inventory, organization]
+        string_required: [inventory, organization]
+      servicenow_notification_test:
+        required: [organization, sandbox]
+        string_required: [organization]
 
   module_defaults:
     group/ansible.controller.controller:
@@ -62,21 +98,20 @@
               throwaway lab.
           when: not (functional_allow_insecure | bool)
 
-        - name: Validate functional_checks is a list of well-formed entries
+        - name: functional_checks must be a list
           ansible.builtin.assert:
             that:
               - functional_checks is sequence
-              - item.type is defined
-              - item.type in (functional_base_types + functional_customer_types)
-              - item.name is defined
-              - item.type not in ['notification_test', 'servicenow_notification_test']
-                or item.organization is defined
-            fail_msg: >-
-              Malformed functional_checks entry: {{ item }}. Each entry needs a
-              supported type and name; notification checks also need organization.
+              - functional_checks is not string
+              - functional_checks is not mapping
+            fail_msg: functional_checks must be a list of check mappings.
+
+        - name: Validate each functional check (type-specific, pre-flight)
+          ansible.builtin.include_tasks: tasks/functional_validate.yml
           loop: "{{ functional_checks }}"
           loop_control:
-            label: "{{ item.type | default('?') }}: {{ item.name | default('?') }}"
+            loop_var: check
+            label: "{{ check.type | default('?') }}: {{ check.name | default('?') }}"
 
   tasks:
     - name: Report NOT_RUN when no functional checks are configured

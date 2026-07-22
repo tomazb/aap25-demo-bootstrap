@@ -51,18 +51,37 @@ functional_checks:
     sandbox: true
 
   # Disposable RHEL SSH canary — the ONLY check that contacts a real host.
-  # Runs only with -e allow_real_managed_host_checks=true and a canary limit.
+  # Runs only with -e allow_real_managed_host_checks=true AND a limit that
+  # exactly matches an entry in ssh_canary_allowlist below.
   - type: ssh_canary_job
     name: PLACEHOLDER Canary Template
     organization: PLACEHOLDER Org
-    limit: PLACEHOLDER-canary-host   # a disposable host, never production
+    limit: PLACEHOLDER-disposable-canary   # must be allowlisted below
+
+# SSH canary safety. Both must be satisfied for a canary to launch:
+#   1. allow_real_managed_host_checks=true (pass on the command line)
+#   2. the check's limit exactly matches an ssh_canary_allowlist entry
+# Only disposable lab canary hosts belong here. Production hosts, groups, broad
+# patterns (all, *, @all, and patterns containing * , : & !), and whole
+# inventories must NEVER appear. Enabling allow_real_managed_host_checks alone
+# is insufficient — the limit must also be allowlisted.
+allow_real_managed_host_checks: false
+ssh_canary_allowlist:
+  - PLACEHOLDER-disposable-canary
 
 # Restricted-user RBAC verification (verify_rbac.yml). Local demo users are
 # used in lab tests; AD-backed login is an opt-in live/manual item. The shared
 # demo password is provided out-of-band (RBAC_DEMO_PASSWORD env or Vault), never
-# here.
+# here. Each user needs expected_job_templates (positive visibility) and
+# forbidden_organizations (negative visibility). The expected organization must
+# not appear in forbidden_organizations.
+rbac_allow_empty: false
 rbac_users:
   - username: demo-alice
     organization: Demo Linux
-  - username: demo-bob
-    organization: Demo Linux
+    expected_job_templates:
+      - Demo 01 - Linux hello
+      - Demo 02 - Linux inventory report
+    forbidden_organizations:
+      - Demo Network
+      - Demo Platform

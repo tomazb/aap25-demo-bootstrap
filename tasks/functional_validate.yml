@@ -1,0 +1,75 @@
+---
+# Pre-flight validation for one functional check. Runs BEFORE any API request
+# or controller module call. check = one functional_checks entry.
+# Error messages reference only type/name/field — never extra_vars or secrets.
+- name: "validate common fields ({{ check.type | default('?') }})"
+  ansible.builtin.assert:
+    that:
+      - check is mapping
+      - check.type is defined
+      - check.type in (functional_base_types + functional_customer_types)
+      - check.name is defined
+      - check.name is string
+      - (check.name | trim | length) > 0
+      - check.timeout is not defined
+        or (check.timeout is integer and (check.timeout | int) > 0)
+    fail_msg: >-
+      Invalid functional check (type={{ check.type | default('?') }},
+      name={{ check.name | default('?') }}): needs a supported type, a
+      non-empty string name, and a positive integer timeout when present.
+
+- name: "validate required fields present ({{ check.type }}: {{ check.name }})"
+  ansible.builtin.assert:
+    that:
+      - functional_field_specs[check.type].required
+        | reject('in', check.keys() | list) | list | length == 0
+    fail_msg: >-
+      {{ check.type }} '{{ check.name }}' is missing required field(s):
+      {{ functional_field_specs[check.type].required
+         | reject('in', check.keys() | list) | list | join(', ') }}.
+
+- name: "validate required string fields non-empty ({{ check.type }}: {{ check.name }})"
+  ansible.builtin.assert:
+    that:
+      - check[item] is string
+      - (check[item] | trim | length) > 0
+    fail_msg: >-
+      {{ check.type }} '{{ check.name }}' field '{{ item }}' must be a
+      non-empty string.
+  loop: "{{ functional_field_specs[check.type].string_required | default([]) }}"
+  loop_control:
+    label: "{{ item }}"
+
+- name: "validate workflow_launch expected_status ({{ check.name }})"
+  ansible.builtin.assert:
+    that:
+      - check.expected_status is not defined
+        or check.expected_status in ['successful', 'failed']
+    fail_msg: >-
+      workflow_launch '{{ check.name }}' expected_status must be 'successful'
+      or 'failed' when set.
+  when: check.type == 'workflow_launch'
+
+- name: "validate servicenow_notification_test sandbox marker ({{ check.name }})"
+  ansible.builtin.assert:
+    that:
+      - check.sandbox is defined
+      - check.sandbox is boolean
+      - check.sandbox | bool
+    fail_msg: >-
+      servicenow_notification_test '{{ check.name }}' must set sandbox: true
+      and point at a non-production ServiceNow instance.
+  when: check.type == 'servicenow_notification_test'
+
+- name: "validate ssh_canary_job is safe to attempt ({{ check.name }})"
+  ansible.builtin.assert:
+    that:
+      - ssh_canary_allowlist is sequence
+      - ssh_canary_allowlist is not string
+      - (ssh_canary_allowlist | length) > 0
+      - allow_real_managed_host_checks | default(false) | bool
+    fail_msg: >-
+      ssh_canary_job '{{ check.name }}' requires a non-empty ssh_canary_allowlist
+      and allow_real_managed_host_checks=true. The per-target allowlist match is
+      enforced again immediately before launch.
+  when: check.type == 'ssh_canary_job'
