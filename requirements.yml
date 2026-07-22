@@ -1,6 +1,9 @@
 ---
 collections:
+  # 2.5.20250702 is the first 2.5.x build whose role_user_assignment supports
+  # object_ids with name lookup; earlier 2.5 GA builds only accept numeric
+  # object_id and would fail the user role assignment tasks.
   - name: ansible.platform
-    version: ">=2.5.0,<2.6.0"
+    version: ">=2.5.20250702,<2.6.0"
   - name: ansible.controller
     version: ">=4.6.0,<4.7.0"

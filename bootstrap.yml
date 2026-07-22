@@ -7,6 +7,25 @@
   vars_files:
     - config/demo.yml
 
+  vars:
+    aap_bootstrap_hostname: "{{ lookup('ansible.builtin.env', 'AAP_HOSTNAME') }}"
+    aap_bootstrap_username: "{{ lookup('ansible.builtin.env', 'AAP_USERNAME') }}"
+    aap_bootstrap_password: "{{ lookup('ansible.builtin.env', 'AAP_PASSWORD') }}"
+    aap_bootstrap_validate_certs: >-
+      {{ (lookup('ansible.builtin.env', 'AAP_VALIDATE_CERTS') or 'true') | bool }}
+
+  # Controller modules only read CONTROLLER_* environment variables on most
+  # ansible.controller 4.6.x builds (AAP_* support arrived late in the 4.6.z
+  # stream). Feed them the AAP_* values explicitly so a single set of AAP_*
+  # exports drives both collections. The gateway URL works as controller_host
+  # because ansible.controller defaults its API base to /api/controller/.
+  module_defaults:
+    group/ansible.controller.controller:
+      controller_host: "{{ aap_bootstrap_hostname }}"
+      controller_username: "{{ aap_bootstrap_username }}"
+      controller_password: "{{ aap_bootstrap_password }}"
+      validate_certs: "{{ aap_bootstrap_validate_certs }}"
+
   pre_tasks:
     - name: Validate required bootstrap inputs
       ansible.builtin.assert:
@@ -96,6 +115,33 @@
           loop: "{{ demo_users }}"
           loop_control:
             label: "{{ item.username }} -> {{ item.team }} ({{ item.team_role }})"
+
+    # The controller learns about gateway-created organizations through a
+    # periodic resource sync (15-minute default interval); there is no push.
+    # On a fresh instance the organizations above may not exist on the
+    # controller side yet, so wait for them before creating controller
+    # objects that reference them. 60 retries x 15 s covers one full sync
+    # interval.
+    - name: Wait for gateway organizations to propagate to the controller
+      ansible.builtin.uri:
+        url: >-
+          {{ aap_bootstrap_hostname | regex_replace('/+$', '')
+          }}/api/controller/v2/organizations/?name={{ item.name | urlencode }}
+        method: GET
+        user: "{{ aap_bootstrap_username }}"
+        password: "{{ aap_bootstrap_password }}"
+        force_basic_auth: true
+        validate_certs: "{{ aap_bootstrap_validate_certs }}"
+        return_content: true
+      register: demo_org_sync
+      until:
+        - demo_org_sync.json is defined
+        - demo_org_sync.json.count | int >= 1
+      retries: 60
+      delay: 15
+      loop: "{{ demo_organizations }}"
+      loop_control:
+        label: "{{ item.name }}"
 
     - name: Create controller inventories
       ansible.controller.inventory:
