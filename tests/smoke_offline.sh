@@ -40,6 +40,8 @@ run_smoke() {  # run_smoke <scenario> ; sets RC and REPORT
 run_smoke happy
 [ "$RC" -eq 0 ] || fail "happy scenario should pass (rc=$RC)"
 grep -q 'RESULT: PASS' "$REPORT" || fail "happy report not PASS"
+grep -q 'UNSAFE: smoke_allow_insecure=true' "$REPORT" \
+  || fail "insecure override not stamped UNSAFE"
 
 # missing project does not crash; report is written and FAILs
 run_smoke missing_project
