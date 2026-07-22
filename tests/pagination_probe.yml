@@ -108,3 +108,19 @@
               - pg_error | length == 0
               - pg_truncated
               - pg_pages | int == 2
+
+    - name: Scenario a 200 response with no next key is an operational error
+      block:
+        - ansible.builtin.set_fact:
+            pg_results: []
+            pg_next: "/nonext/"
+            pg_pages: 0
+            pg_error: ""
+            pg_truncated: false
+        - ansible.builtin.include_tasks: ../tasks/paginated_get.yml
+        - name: Assert missing-next recorded as error, no partial rows kept
+          ansible.builtin.assert:
+            that:
+              - pg_error | length > 0
+              - "\"missing 'next'\" in pg_error"
+              - pg_results | length == 0

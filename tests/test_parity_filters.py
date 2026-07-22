@@ -97,6 +97,14 @@ def test_resolve_absolute_next_different_host_is_pinned():
     assert "attacker.evil" not in got
 
 
+def test_resolve_protocol_relative_next_is_pinned():
+    # Protocol-relative next links are untrusted and must not change origin.
+    got = resolve_pagination_url(
+        HOST, "//attacker.evil/api/v2/x/?page=2")
+    assert got == "https://target.example.com/api/v2/x/?page=2"
+    assert "attacker.evil" not in got
+
+
 def test_resolve_absolute_next_with_port_pins_trusted_port():
     got = resolve_pagination_url(
         "https://target.example.com:8443",

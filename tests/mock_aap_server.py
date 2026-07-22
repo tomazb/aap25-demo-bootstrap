@@ -125,16 +125,24 @@ class Handler(BaseHTTPRequestHandler):
 
         if path == "/api/controller/v2/jobs/":
             status = q.get("status", [None])[0]
+            try:
+                jt_id = int(q.get("job_template", ["0"])[0])
+            except (TypeError, ValueError):
+                jt_id = 0
             if SCENARIO == "stale_history" and status == "successful":
                 # No history for the current template id (only an old id had it).
                 return self._send(200, _list([]))
             if status == "failed":
                 # Only the controlled-outcome current id has a failed run.
-                jt_id = int(q.get("job_template", ["0"])[0])
                 if jt_id == JT[CONTROLLED]["id"]:
                     return self._send(200, _list([{"id": 1, "status": "failed"}]))
                 return self._send(200, _list([]))
-            return self._send(200, _list([{"id": 1, "status": "successful"}]))
+            if status == "successful":
+                current_ids = {template["id"] for template in JT.values()}
+                if jt_id in current_ids:
+                    return self._send(
+                        200, _list([{"id": 1, "status": "successful"}]))
+            return self._send(200, _list([]))
 
         return self._send(404, {"detail": "not found"})
 
