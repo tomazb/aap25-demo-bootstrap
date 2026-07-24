@@ -1,0 +1,87 @@
+---
+# EXAMPLE customer-shaped verification overlay. Copy to config/verify.customer.yml
+# (gitignored) and fill in for your environment, then:
+#   ansible-playbook verify_functional.yml -e @config/verify.customer.yml
+#
+# PLACEHOLDERS ONLY. Never commit real hostnames, usernames, organization
+# names, Git URLs, CyberArk paths, ServiceNow URLs, or passwords. Secrets come
+# only from AAP credentials / Vault / protected env vars, never from this file.
+#
+# All checks below are opt-in and OFF by default (functional_checks is empty in
+# config/verify.yml). Nothing here contacts a real managed host unless you add
+# an ssh_canary_job AND pass -e allow_real_managed_host_checks=true.
+
+functional_checks:
+  # Private on-prem GitHub project sync — proves DNS/routing/internal CA/Git
+  # auth/SCM credential decrypt. Reuses the project_update mechanism.
+  - type: private_scm_project_update
+    name: PLACEHOLDER Project Name
+    organization: PLACEHOLDER Org
+
+  # Launch a template pinned to a custom EE; asserts the job ran on that EE.
+  - type: execution_environment_job
+    name: PLACEHOLDER Template Using Custom EE
+    organization: PLACEHOLDER Org
+    execution_environment: PLACEHOLDER-ee-name
+    # extra_vars: {}   # optional; values are not printed to the report
+
+  # CyberArk-backed external credential — a successful target op is the proof.
+  # Secret values are never retrieved or reported.
+  - type: external_credential_job
+    name: PLACEHOLDER Template Using CyberArk Credential
+    organization: PLACEHOLDER Org
+
+  # Migrated workflow — expected_status success or a controlled failed.
+  - type: workflow_launch
+    name: PLACEHOLDER Workflow Template
+    organization: PLACEHOLDER Org
+    expected_status: successful
+
+  # Inventory source sync — proves the source plugin config and its credential.
+  - type: inventory_source_update
+    name: PLACEHOLDER Inventory Source
+    inventory: PLACEHOLDER Inventory
+    organization: PLACEHOLDER Org
+
+  # ServiceNow notification — sandbox marker REQUIRED so production is never
+  # ticketed. Point the notification template at a non-production instance.
+  - type: servicenow_notification_test
+    name: PLACEHOLDER ServiceNow Notifier
+    organization: PLACEHOLDER Org
+    sandbox: true
+
+  # Disposable RHEL SSH canary — the ONLY check that contacts a real host.
+  # Runs only with -e allow_real_managed_host_checks=true AND a limit that
+  # exactly matches an entry in ssh_canary_allowlist below.
+  - type: ssh_canary_job
+    name: PLACEHOLDER Canary Template
+    organization: PLACEHOLDER Org
+    limit: PLACEHOLDER-disposable-canary   # must be allowlisted below
+
+# SSH canary safety. Both must be satisfied for a canary to launch:
+#   1. allow_real_managed_host_checks=true (pass on the command line)
+#   2. the check's limit exactly matches an ssh_canary_allowlist entry
+# Only disposable lab canary hosts belong here. Production hosts, groups, broad
+# patterns (all, *, @all, and patterns containing * , : & !), and whole
+# inventories must NEVER appear. Enabling allow_real_managed_host_checks alone
+# is insufficient — the limit must also be allowlisted.
+allow_real_managed_host_checks: false
+ssh_canary_allowlist:
+  - PLACEHOLDER-disposable-canary
+
+# Restricted-user RBAC verification (verify_rbac.yml). Local demo users are
+# used in lab tests; AD-backed login is an opt-in live/manual item. The shared
+# demo password is provided out-of-band (RBAC_DEMO_PASSWORD env or Vault), never
+# here. Each user needs expected_job_templates (positive visibility) and
+# forbidden_organizations (negative visibility). The expected organization must
+# not appear in forbidden_organizations.
+rbac_allow_empty: false
+rbac_users:
+  - username: demo-alice
+    organization: Demo Linux
+    expected_job_templates:
+      - Demo 01 - Linux hello
+      - Demo 02 - Linux inventory report
+    forbidden_organizations:
+      - Demo Network
+      - Demo Platform

@@ -12,8 +12,10 @@ argv[1] = port file. Scenarios:
   stale_history      job templates exist but NO successful history for the
                      current template id (only stale runs of an old id existed)
 """
+import base64
 import json
 import os
+import re
 import sys
 from http.server import BaseHTTPRequestHandler, HTTPServer
 from urllib.parse import urlparse, parse_qs
@@ -35,6 +37,12 @@ JT = {j["name"]: {"org": j["organization"], "id": 100 + n}
 CONTROLLED = "Demo 05 - Controlled outcome"
 FIRST_PROJECT = DEMO["demo_projects"][0]["name"]
 FIRST_INV = DEMO["demo_inventories"][0]["name"]
+# Restricted-user RBAC: map username -> org, and enumerate all JT rows so an
+# unfiltered list can be scoped to the authenticated user's own organization.
+USER_ORG = {u["username"]: u["organization"] for u in DEMO["demo_users"]}
+JT_ROWS = [{"name": n, "id": v["id"],
+            "summary_fields": {"organization": {"name": v["org"]}}}
+           for n, v in JT.items()]
 
 
 def _list(results):
@@ -52,12 +60,77 @@ class Handler(BaseHTTPRequestHandler):
         self.end_headers()
         self.wfile.write(json.dumps(body).encode())
 
+    @staticmethod
+    def _jt(org, tname):
+        return {"name": tname, "id": 1,
+                "summary_fields": {"organization": {"name": org}}}
+
+    def _rbac_list(self, scen, path, q):
+        """Env-driven RBAC pagination scenarios for verify_rbac.yml tests."""
+        page = int(q.get("page", ["1"])[0])
+        host = self.headers.get("Host", "127.0.0.1")
+        nxt = "http://%s%s?page=%d" % (host, path, page + 1)
+        L1 = self._jt("Demo Linux", "Demo 01 - Linux hello")
+        L2 = self._jt("Demo Linux", "Demo 02 - Linux inventory report")
+        NET = self._jt("Demo Network", "Demo 03 - Network discovery simulation")
+        if scen == "missing_expected":
+            return self._send(200, _list([L1]))
+        if scen == "forbidden":
+            return self._send(200, _list([L1, L2, NET]))
+        if scen == "empty":
+            return self._send(200, _list([]))
+        if scen == "http_error":
+            return self._send(500, {"detail": "rbac boom"})
+        if scen == "no_next":
+            return self._send(200, {"count": 2, "results": [L1, L2]})
+        if scen == "truncate":
+            body = {"count": 999, "next": nxt, "previous": None, "results": [L1]}
+            return self._send(200, body)
+        if scen in ("twopage", "foreign_page2", "expected_page2"):
+            # A neutral in-org template that is NOT one of Alice's expected
+            # templates, so expected_page2 truly has no expected row on page 1.
+            NEU = self._jt("Demo Linux", "Demo 99 - Neutral")
+            pages = {
+                "twopage": ([L1], [L2]),
+                "foreign_page2": ([L1, L2], [NET]),
+                "expected_page2": ([NEU], [L1, L2]),
+            }[scen]
+            if page == 1:
+                return self._send(200, {"count": 2, "next": nxt,
+                                        "previous": None, "results": pages[0]})
+            return self._send(200, _list(pages[1]))
+        return self._send(200, _list([L1, L2]))
+
+    def _auth_user(self):
+        hdr = self.headers.get("Authorization", "")
+        if hdr.startswith("Basic "):
+            try:
+                return base64.b64decode(hdr[6:]).decode().split(":", 1)[0]
+            except Exception:
+                return None
+        return None
+
     def do_GET(self):
         p = urlparse(self.path)
         q = parse_qs(p.query)
         path = p.path
         name = q.get("name", [None])[0]
         username = q.get("username", [None])[0]
+
+        # Restricted-user RBAC: an unfiltered job-template list is scoped to the
+        # authenticated user's own organization (admin/unknown sees all).
+        if path == "/api/controller/v2/job_templates/" and name is None:
+            scen = os.environ.get("RBAC_SCENARIO")
+            if scen:
+                return self._rbac_list(scen, path, q)
+            who = self._auth_user()
+            if who in USER_ORG:
+                org = USER_ORG[who]
+                rows = [r for r in JT_ROWS
+                        if r["summary_fields"]["organization"]["name"] == org]
+            else:
+                rows = JT_ROWS
+            return self._send(200, _list(rows))
 
         if path == "/api/gateway/v1/organizations/":
             return self._send(200, _list(
@@ -116,6 +189,44 @@ class Handler(BaseHTTPRequestHandler):
                         200, _list([{"id": 1, "status": "successful"}]))
             return self._send(200, _list([]))
 
+        # --- customer-functional readback endpoints (env-driven) ------------
+        # Job readback: returns the execution environment name for EE checks.
+        if re.match(r"^/api/controller/v2/jobs/\d+/$", path):
+            if os.environ.get("CUSTOMER_JOB_READ_FAIL"):
+                return self._send(500, {"detail": "readback boom"})
+            ee = os.environ.get("CUSTOMER_EE", "custom-ee")
+            return self._send(200, {
+                "id": int(path.rstrip("/").rsplit("/", 1)[1]),
+                "status": "successful",
+                "summary_fields": {"execution_environment": {"name": ee}}})
+
+        # Notification templates lookup (org-scoped, count controlled by env).
+        if path == "/api/controller/v2/notification_templates/":
+            n = int(os.environ.get("CUSTOMER_SNOW_MATCHES", "1"))
+            org = os.environ.get("CUSTOMER_SNOW_ORG", "PLACEHOLDER Org")
+            rows = [{"id": 900 + i, "name": name,
+                     "summary_fields": {"organization": {"name": org}}}
+                    for i in range(n)]
+            return self._send(200, _list(rows))
+
+        # Notification result poll.
+        if re.match(r"^/api/controller/v2/notifications/\d+/$", path):
+            return self._send(200, {
+                "id": int(path.rstrip("/").rsplit("/", 1)[1]),
+                "status": os.environ.get("CUSTOMER_SNOW_STATUS", "successful")})
+
+        # Enabled schedules (empty by default so the functional schedule check
+        # finds nothing to fault).
+        if path == "/api/controller/v2/schedules/":
+            return self._send(200, _list([]))
+
+        return self._send(404, {"detail": "not found"})
+
+    def do_POST(self):
+        path = urlparse(self.path).path
+        # Notification test launch -> 202 with a result id to poll.
+        if re.match(r"^/api/controller/v2/notification_templates/\d+/test/$", path):
+            return self._send(202, {"notification": 555, "id": 555})
         return self._send(404, {"detail": "not found"})
 
 
