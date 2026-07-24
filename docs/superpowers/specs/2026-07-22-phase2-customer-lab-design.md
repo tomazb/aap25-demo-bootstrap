@@ -74,10 +74,14 @@ appear.
 `RBAC_DEMO_PASSWORD` (env) or a Vault-provided `demo_user_password`, is marked
 `no_log`, and is never printed or placed in config.
 
-- **Pagination:** all visible job templates are retrieved via the hardened
-  `tasks/paginated_get.yml` (origin pinning, HTTPS/cert behavior, `no_log`
-  password), following every page. A pagination error or truncation is a
-  failure and partial rows are never evaluated as complete.
+- **Pagination (fail-closed):** all visible job templates are retrieved via the
+  hardened `tasks/paginated_get.yml`. The API `next` link is untrusted:
+  `resolve_pagination_url` validates the scheme and pins the origin
+  (scheme/host/port) to the trusted host, so a redirected or foreign `next`
+  URL is never followed and Basic credentials are never sent cross-origin
+  (the `no_log` fetch keeps the password out of output). Every page is followed;
+  a pagination error, an invalid/missing-`next` response shape, or truncation
+  at the page cap is a failure — partial rows are never evaluated as complete.
 - **Positive:** each `expected_job_templates` entry must be visible exactly once
   and belong to the user's `organization`. Missing => FAIL, duplicate => FAIL.
   A user who sees zero templates cannot pass when expected templates are set.

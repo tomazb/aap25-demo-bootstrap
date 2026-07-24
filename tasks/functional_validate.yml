@@ -61,15 +61,9 @@
       and point at a non-production ServiceNow instance.
   when: check.type == 'servicenow_notification_test'
 
-- name: "validate ssh_canary_job is safe to attempt ({{ check.name }})"
-  ansible.builtin.assert:
-    that:
-      - ssh_canary_allowlist is sequence
-      - ssh_canary_allowlist is not string
-      - (ssh_canary_allowlist | length) > 0
-      - allow_real_managed_host_checks | default(false) | bool
-    fail_msg: >-
-      ssh_canary_job '{{ check.name }}' requires a non-empty ssh_canary_allowlist
-      and allow_real_managed_host_checks=true. The per-target allowlist match is
-      enforced again immediately before launch.
-  when: check.type == 'ssh_canary_job'
+# NOTE: the ssh_canary allow-flag/allowlist SAFETY gate is intentionally NOT
+# asserted here. Pre-flight validation only checks config shape (required
+# fields above). The runtime safety gate lives in tasks/functional_check_customer
+# .yml so that a disabled/misconfigured canary is recorded as a collected
+# functional failure and the run still verifies other checks and writes a
+# report, instead of aborting the whole play during validation.

@@ -9,8 +9,11 @@ cd "$(dirname "$0")/.." || exit 1
 workdir=".tmp/cf"
 rm -rf "$workdir"; mkdir -p "$workdir"
 reportdir="$workdir/reports"; mkdir -p "$reportdir"
-marker="$workdir/markers.log"
-runlog="$workdir/run.log"
+# Per-run marker/runlog (never overwritten) so the final sentinel scan sees
+# EVERY scenario's markers and captured output, not just the last one.
+run_number=0
+marker="$workdir/markers-0.log"
+runlog="$workdir/run-0.log"
 : > "$marker"
 
 # Sentinels that must never surface in reports, markers, or captured output.
@@ -40,6 +43,9 @@ latest() { ls -t "$reportdir"/functional-*.md | head -1; }
 # run_fn <checks-json-extra-args...>  ; sets RC and REPORT, appends to runlog.
 # Caller must have called start_server and may export STUB_* / allow flag envs.
 run_fn() {
+  run_number=$((run_number + 1))
+  marker="$workdir/markers-${run_number}.log"
+  runlog="$workdir/run-${run_number}.log"
   : > "$marker"
   set +e
   STUB_MARKER="$marker" \
@@ -226,9 +232,10 @@ not_launched job_launch || fail "G: launched despite missing limit"
 stop_server
 
 # ============================ H. report/output safety ====================
-if grep -R -e "$SENT_SECRET" -e "$SENT_TOKEN" -e "$SENT_XVAR" "$reportdir" "$marker" "$runlog" >/dev/null 2>&1; then
+# Scan ALL per-run markers, run logs, and reports across every scenario.
+if grep -R -e "$SENT_SECRET" -e "$SENT_TOKEN" -e "$SENT_XVAR" "$workdir" >/dev/null 2>&1; then
   echo "sentinel leak locations:" >&2
-  grep -RIl -e "$SENT_SECRET" -e "$SENT_TOKEN" -e "$SENT_XVAR" "$reportdir" "$marker" "$runlog" >&2 || true
+  grep -RIl -e "$SENT_SECRET" -e "$SENT_TOKEN" -e "$SENT_XVAR" "$workdir" >&2 || true
   fail "H: a sentinel value leaked into a report/marker/output"
 fi
 

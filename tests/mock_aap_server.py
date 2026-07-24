@@ -87,10 +87,13 @@ class Handler(BaseHTTPRequestHandler):
             body = {"count": 999, "next": nxt, "previous": None, "results": [L1]}
             return self._send(200, body)
         if scen in ("twopage", "foreign_page2", "expected_page2"):
+            # A neutral in-org template that is NOT one of Alice's expected
+            # templates, so expected_page2 truly has no expected row on page 1.
+            NEU = self._jt("Demo Linux", "Demo 99 - Neutral")
             pages = {
                 "twopage": ([L1], [L2]),
                 "foreign_page2": ([L1, L2], [NET]),
-                "expected_page2": ([L1], [L2]),
+                "expected_page2": ([NEU], [L1, L2]),
             }[scen]
             if page == 1:
                 return self._send(200, {"count": 2, "next": nxt,

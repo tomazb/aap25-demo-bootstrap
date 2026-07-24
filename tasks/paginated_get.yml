@@ -27,6 +27,10 @@
     status_code: [200]
   register: pg_page
   failed_when: false
+  # Carries url_password (Basic auth). no_log so credentials never appear in
+  # verbose runs, debug, or callback output. pg_page is still registered and
+  # usable by the tasks below.
+  no_log: true
 
 - name: Record a page error and stop paginating
   ansible.builtin.set_fact:

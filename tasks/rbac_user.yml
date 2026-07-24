@@ -17,6 +17,8 @@
     pg_password: "{{ rbac_password }}"
     pg_validate_certs: "{{ aap_validate_certs }}"
     pg_max_pages: "{{ rbac_max_pages | default(50) }}"
+  # This set_fact carries the restricted-user password into pg_password.
+  no_log: true
 
 - name: "{{ rbac_user.username }}: fetch pages (as the user)"
   ansible.builtin.include_tasks: tasks/paginated_get.yml
