@@ -13,6 +13,10 @@
     aap_bootstrap_password: "{{ lookup('ansible.builtin.env', 'AAP_PASSWORD') }}"
     aap_bootstrap_validate_certs: >-
       {{ (lookup('ansible.builtin.env', 'AAP_VALIDATE_CERTS') or 'true') | bool }}
+    # Lab-only escape hatch, mirroring the verify_* playbooks. Default false;
+    # when true the HTTPS/cert requirement below is relaxed. Never use this
+    # against a real target.
+    bootstrap_allow_insecure: false
 
   # Controller modules only read CONTROLLER_* environment variables on most
   # ansible.controller 4.6.x builds (AAP_* support arrived late in the 4.6.z
@@ -38,6 +42,19 @@
         fail_msg: >-
           Export AAP_HOSTNAME, AAP_USERNAME, AAP_PASSWORD and pass
           -e demo_scm_url=https://your.git.example/aap/aap25-demo-bootstrap.git
+
+    - name: Require secure transport before sending admin credentials
+      ansible.builtin.assert:
+        that:
+          - aap_bootstrap_hostname is match('^https://')
+          - aap_bootstrap_validate_certs | bool
+        fail_msg: >-
+          Export an HTTPS AAP_HOSTNAME and keep certificate validation enabled
+          (install private CA trust rather than disabling it). Admin
+          credentials must not be sent over HTTP or without certificate
+          validation. Set -e bootstrap_allow_insecure=true only for a
+          throwaway lab.
+      when: not (bootstrap_allow_insecure | bool)
 
   tasks:
     - name: Create demo organizations through platform gateway
