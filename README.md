@@ -7,6 +7,12 @@ This repository populates a fresh Ansible Automation Platform 2.5 installation w
 - three controller inventories with synthetic hosts and groups;
 - three SCM projects pointing back to this repository;
 - five safe job templates, including a survey and a controlled failure;
+- one workflow job template chaining two of the demo templates;
+- one enabled weekly schedule, one webhook notification template pointing at
+  a non-routable URL, one machine credential with a clearly-fake password,
+  and one label — so every object type compared by `verify_parity.yml` is
+  exercised by seeded content (execution environments excepted: a custom EE
+  needs a pullable image, and the default EEs already exercise that type);
 - seeded successful and failed job history.
 
 No task contacts a real managed host. Every synthetic host uses `ansible_connection: local`, and the content is limited to `debug`, `assert`, `set_stats`, and an intentional `fail` task.
@@ -28,6 +34,17 @@ Expected version families are `ansible.platform 2.5.x` and `ansible.controller 4
 
 `requirements.yml` requires `ansible.platform >= 2.5.20250702`: earlier 2.5 GA builds lack the `object_ids` name-lookup parameter on `role_user_assignment` that the user role assignments depend on. If your private automation hub only mirrors an older 2.5 build, sync a newer one before running the bootstrap.
 
+## 2a. Control node prerequisites (RHEL 8)
+
+ansible-core 2.16 — the AAP 2.5 tooling line — requires Python 3.10–3.12 on
+the control node. Stock RHEL 8 `python3` is 3.6, which cannot run it. Either:
+
+- install a newer application stream and use it for ansible-core and the
+  collections: `sudo dnf install python3.12` then
+  `python3.12 -m pip install --user ansible-core`, or
+- run the playbooks from an AAP execution environment with
+  `ansible-navigator`, which needs no Python on the host beyond the runner.
+
 ## 3. Export bootstrap authentication
 
 Use the platform gateway URL. A temporary platform administrator credential is the simplest bootstrap method. Do not commit it.
@@ -38,6 +55,11 @@ export AAP_USERNAME='admin'
 export AAP_PASSWORD='REDACTED'
 export AAP_VALIDATE_CERTS='true'
 ```
+
+`bootstrap.yml` and `teardown.yml` refuse a plain-HTTP endpoint or disabled
+certificate validation before sending the admin credential; for a throwaway
+lab only, override with `-e bootstrap_allow_insecure=true` /
+`-e teardown_allow_insecure=true`.
 
 The playbook feeds these values to the `ansible.controller` modules through `module_defaults`, so `CONTROLLER_*` environment variables are not needed. Most `ansible.controller` 4.6.x builds only read `CONTROLLER_*` variables, not `AAP_*`, which is why the playbook passes the values explicitly instead of relying on the environment.
 
@@ -92,7 +114,15 @@ Verify in the unified UI:
 5. Automation Execution -> Projects: three successful SCM project syncs.
 6. Automation Execution -> Templates: five demo job templates.
 7. Jobs: successful runs plus one intentional failed run.
-8. Log in as `demo-alice` (Demo Linux team admin): only the Demo Linux inventory, project, and templates are visible and manageable; the other two organizations' content is not.
+8. Automation Execution -> Templates: the `Demo WF - Linux hello then report`
+   workflow template.
+9. Automation Execution -> Schedules: `Demo Weekly Hello`, enabled, with a
+   populated next run.
+10. Automation Execution -> Administration -> Notifiers: `Demo Webhook
+    Notifier`.
+11. Automation Execution -> Infrastructure -> Credentials: `Demo Platform
+    Machine Credential`.
+12. Log in as `demo-alice` (Demo Linux team admin): only the Demo Linux inventory, project, and templates are visible and manageable; the other two organizations' content is not.
 
 ## 7. Migration verification (AAP 2.5 RPM -> AAP 2.5 on OpenShift)
 
