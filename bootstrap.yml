@@ -314,5 +314,25 @@
       loop_control:
         label: "{{ item.organization }} / {{ item.template }}"
       ignore_errors: "{{ item.expect_failure | default(false) }}"
+      register: demo_seed_results
+      tags:
+        - seed_history
+
+    # ignore_errors above swallows BOTH outcomes for expect_failure items; an
+    # unexpectedly-successful "controlled failure" must fail bootstrap here,
+    # not surface later in the smoke gate.
+    - name: Assert intentional-failure seed jobs actually failed
+      ansible.builtin.assert:
+        that:
+          - item is failed
+        fail_msg: >-
+          Seed job '{{ item.item.template }}' was expected to fail but
+          succeeded; the controlled-outcome demo content is wrong.
+      loop: >-
+        {{ demo_seed_results.results
+           | selectattr('item.expect_failure', 'defined')
+           | selectattr('item.expect_failure') | list }}
+      loop_control:
+        label: "{{ item.item.template }}"
       tags:
         - seed_history
