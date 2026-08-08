@@ -224,6 +224,162 @@
         or (smoke_proj_matches | length) != 1
         or (smoke_proj_matches[0].status | default('')) != 'successful'
 
+    - name: Check workflow job templates exist (org-scoped)
+      ansible.builtin.uri:
+        url: >-
+          {{ aap_hostname }}/api/controller/v2/workflow_job_templates/?name={{
+          item.name | urlencode }}
+        url_username: "{{ aap_username }}"
+        url_password: "{{ aap_password }}"
+        force_basic_auth: true
+        validate_certs: "{{ aap_validate_certs }}"
+        return_content: true
+        status_code: [200]
+      register: smoke_workflows
+      failed_when: false
+      loop: "{{ demo_workflow_job_templates }}"
+      loop_control:
+        label: "{{ item.name }}"
+
+    - name: Record workflow job template problems
+      ansible.builtin.set_fact:
+        smoke_failures: >-
+          {{ smoke_failures + [
+             'workflow job template request failed: ' ~ item.item.name
+             ~ ' (status=' ~ (item.status | default('unreachable')) ~ ')'
+             if (item.status | default(0) | int) != 200
+             else 'workflow job template missing in org: '
+                  ~ item.item.organization ~ ' / ' ~ item.item.name
+             if (smoke_wf_matches | length) == 0
+             else 'duplicate workflow job template in org: '
+                  ~ item.item.organization ~ ' / ' ~ item.item.name] }}
+      vars:
+        smoke_wf_matches: >-
+          {{ (item.json.results | default([]))
+             | selectattr('summary_fields.organization.name', 'equalto',
+                          item.item.organization) | list }}
+      loop: "{{ smoke_workflows.results }}"
+      loop_control:
+        label: "{{ item.item.name }}"
+      when: >-
+        (item.status | default(0) | int) != 200
+        or (item.json.results | default([])
+            | selectattr('summary_fields.organization.name', 'equalto',
+                         item.item.organization) | list | length) != 1
+
+    - name: Check notification templates exist (org-scoped)
+      ansible.builtin.uri:
+        url: >-
+          {{ aap_hostname }}/api/controller/v2/notification_templates/?name={{
+          item.name | urlencode }}
+        url_username: "{{ aap_username }}"
+        url_password: "{{ aap_password }}"
+        force_basic_auth: true
+        validate_certs: "{{ aap_validate_certs }}"
+        return_content: true
+        status_code: [200]
+      register: smoke_notifiers
+      failed_when: false
+      loop: "{{ demo_notification_templates }}"
+      loop_control:
+        label: "{{ item.name }}"
+
+    - name: Record notification template problems
+      ansible.builtin.set_fact:
+        smoke_failures: >-
+          {{ smoke_failures + [
+             'notification template request failed: ' ~ item.item.name
+             ~ ' (status=' ~ (item.status | default('unreachable')) ~ ')'
+             if (item.status | default(0) | int) != 200
+             else 'notification template missing in org: '
+                  ~ item.item.organization ~ ' / ' ~ item.item.name] }}
+      loop: "{{ smoke_notifiers.results }}"
+      loop_control:
+        label: "{{ item.item.name }}"
+      when: >-
+        (item.status | default(0) | int) != 200
+        or (item.json.results | default([])
+            | selectattr('summary_fields.organization.name', 'equalto',
+                         item.item.organization) | list | length) != 1
+
+    - name: Check demo credentials exist (org-scoped)
+      ansible.builtin.uri:
+        url: >-
+          {{ aap_hostname }}/api/controller/v2/credentials/?name={{
+          item.name | urlencode }}
+        url_username: "{{ aap_username }}"
+        url_password: "{{ aap_password }}"
+        force_basic_auth: true
+        validate_certs: "{{ aap_validate_certs }}"
+        return_content: true
+        status_code: [200]
+      register: smoke_credentials
+      failed_when: false
+      loop: "{{ demo_credentials }}"
+      loop_control:
+        label: "{{ item.name }}"
+
+    - name: Record credential problems
+      ansible.builtin.set_fact:
+        smoke_failures: >-
+          {{ smoke_failures + [
+             'credential request failed: ' ~ item.item.name
+             ~ ' (status=' ~ (item.status | default('unreachable')) ~ ')'
+             if (item.status | default(0) | int) != 200
+             else 'credential missing in org: '
+                  ~ item.item.organization ~ ' / ' ~ item.item.name] }}
+      loop: "{{ smoke_credentials.results }}"
+      loop_control:
+        label: "{{ item.item.name }}"
+      when: >-
+        (item.status | default(0) | int) != 200
+        or (item.json.results | default([])
+            | selectattr('summary_fields.organization.name', 'equalto',
+                         item.item.organization) | list | length) != 1
+
+    - name: Check demo schedules exist, enabled, with a next run
+      ansible.builtin.uri:
+        url: >-
+          {{ aap_hostname }}/api/controller/v2/schedules/?name={{
+          item.name | urlencode }}
+        url_username: "{{ aap_username }}"
+        url_password: "{{ aap_password }}"
+        force_basic_auth: true
+        validate_certs: "{{ aap_validate_certs }}"
+        return_content: true
+        status_code: [200]
+      register: smoke_schedules
+      failed_when: false
+      loop: "{{ demo_schedules }}"
+      loop_control:
+        label: "{{ item.name }}"
+
+    - name: Record schedule problems
+      ansible.builtin.set_fact:
+        smoke_failures: >-
+          {{ smoke_failures + [
+             'schedule request failed: ' ~ item.item.name
+             ~ ' (status=' ~ (item.status | default('unreachable')) ~ ')'
+             if (item.status | default(0) | int) != 200
+             else 'schedule missing: ' ~ item.item.name
+             if (smoke_sched_matches | length) != 1
+             else 'schedule disabled: ' ~ item.item.name
+             if not (smoke_sched_matches[0].enabled | default(false))
+             else 'schedule has no next_run: ' ~ item.item.name] }}
+      vars:
+        smoke_sched_matches: >-
+          {{ (item.json.results | default([]))
+             | selectattr('summary_fields.unified_job_template.name',
+                          'equalto', item.item.unified_job_template) | list }}
+      loop: "{{ smoke_schedules.results }}"
+      loop_control:
+        label: "{{ item.item.name }}"
+      when: >-
+        (item.status | default(0) | int) != 200
+        or (smoke_sched_matches | length) != 1
+        or not (smoke_sched_matches[0].enabled | default(false))
+        or (smoke_sched_matches[0].next_run | default(none)) is none
+
     - name: Check job templates and current-template history
       ansible.builtin.include_tasks: tasks/smoke_job_template.yml
       loop: "{{ demo_job_templates }}"

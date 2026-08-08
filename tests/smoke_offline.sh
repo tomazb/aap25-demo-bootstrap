@@ -66,6 +66,12 @@ run_smoke stale_history
 grep -q 'no successful run for the current template id' "$REPORT" \
   || fail "stale history not caught by current-id check"
 
+# a missing workflow template must fail the smoke gate
+run_smoke missing_workflow
+[ "$RC" -ne 0 ] || fail "missing_workflow should fail"
+grep -q 'workflow job template missing in org' "$REPORT" \
+  || fail "missing workflow not reported"
+
 # the security gate rejects HTTP without the insecure override
 start_server happy
 if AAP_HOSTNAME="$BASE" AAP_USERNAME=admin AAP_PASSWORD=x \
