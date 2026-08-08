@@ -266,6 +266,93 @@
                 - production
               default: development
 
+    - name: Create demo credentials
+      ansible.controller.credential:
+        name: "{{ item.name }}"
+        organization: "{{ item.organization }}"
+        credential_type: "{{ item.credential_type }}"
+        description: "{{ item.description }}"
+        inputs: "{{ item.inputs }}"
+        update_secrets: false
+        state: present
+      loop: "{{ demo_credentials }}"
+      loop_control:
+        label: "{{ item.organization }} / {{ item.name }}"
+
+    - name: Create demo labels
+      ansible.controller.label:
+        name: "{{ item.name }}"
+        organization: "{{ item.organization }}"
+      loop: "{{ demo_labels }}"
+      loop_control:
+        label: "{{ item.organization }} / {{ item.name }}"
+
+    - name: Create demo notification templates
+      ansible.controller.notification_template:
+        name: "{{ item.name }}"
+        organization: "{{ item.organization }}"
+        description: "{{ item.description }}"
+        notification_type: "{{ item.notification_type }}"
+        notification_configuration: "{{ item.notification_configuration }}"
+        state: present
+      loop: "{{ demo_notification_templates }}"
+      loop_control:
+        label: "{{ item.organization }} / {{ item.name }}"
+
+    - name: Create demo workflow job templates
+      ansible.controller.workflow_job_template:
+        name: "{{ item.name }}"
+        organization: "{{ item.organization }}"
+        description: "{{ item.description }}"
+        state: present
+      loop: "{{ demo_workflow_job_templates }}"
+      loop_control:
+        label: "{{ item.organization }} / {{ item.name }}"
+
+    # Two-pass node creation: create every node first, then link success
+    # paths, so a link never references a not-yet-created node identifier.
+    - name: Create demo workflow nodes
+      ansible.controller.workflow_job_template_node:
+        workflow_job_template: "{{ item.0.name }}"
+        organization: "{{ item.0.organization }}"
+        identifier: "{{ item.1.identifier }}"
+        unified_job_template: "{{ item.1.unified_job_template }}"
+        state: present
+      loop: "{{ demo_workflow_job_templates | subelements('nodes') }}"
+      loop_control:
+        label: "{{ item.0.name }} / {{ item.1.identifier }}"
+
+    - name: Link demo workflow node success paths
+      ansible.controller.workflow_job_template_node:
+        workflow_job_template: "{{ item.0.name }}"
+        organization: "{{ item.0.organization }}"
+        identifier: "{{ item.1.identifier }}"
+        success_nodes: "{{ item.1.success_nodes }}"
+        state: present
+      loop: "{{ demo_workflow_job_templates | subelements('nodes') }}"
+      loop_control:
+        label: "{{ item.0.name }} / {{ item.1.identifier }}"
+      when: item.1.success_nodes | length > 0
+
+    - name: Create demo schedules
+      ansible.controller.schedule:
+        name: "{{ item.name }}"
+        unified_job_template: "{{ item.unified_job_template }}"
+        description: "{{ item.description }}"
+        rrule: "{{ item.rrule }}"
+        enabled: "{{ item.enabled }}"
+        state: present
+      loop: "{{ demo_schedules }}"
+      loop_control:
+        label: "{{ item.name }}"
+
+    - name: Attach demo labels to the controlled-outcome template
+      ansible.controller.job_template:
+        name: Demo 05 - Controlled outcome
+        organization: Demo Platform
+        labels: "{{ demo_labels | map(attribute='name') | list }}"
+        state: present
+
     - name: Grant teams admin rights on their organization inventories
       ansible.controller.role_team_assignment:
         role_definition: Inventory Admin

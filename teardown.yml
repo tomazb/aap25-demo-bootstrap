@@ -51,6 +51,47 @@
     # Strict reverse dependency order relative to bootstrap.yml. Job
     # history of deleted templates remains visible in the controller by
     # design.
+    - name: Remove demo schedules
+      ansible.controller.schedule:
+        name: "{{ item.name }}"
+        unified_job_template: "{{ item.unified_job_template }}"
+        state: absent
+      loop: "{{ demo_schedules }}"
+      loop_control:
+        label: "{{ item.name }}"
+
+    - name: Remove demo workflow job templates
+      ansible.controller.workflow_job_template:
+        name: "{{ item.name }}"
+        organization: "{{ item.organization }}"
+        state: absent
+      loop: "{{ demo_workflow_job_templates }}"
+      loop_control:
+        label: "{{ item.organization }} / {{ item.name }}"
+
+    - name: Remove demo notification templates
+      ansible.controller.notification_template:
+        name: "{{ item.name }}"
+        organization: "{{ item.organization }}"
+        state: absent
+      loop: "{{ demo_notification_templates }}"
+      loop_control:
+        label: "{{ item.organization }} / {{ item.name }}"
+
+    - name: Remove demo credentials
+      ansible.controller.credential:
+        name: "{{ item.name }}"
+        organization: "{{ item.organization }}"
+        credential_type: "{{ item.credential_type }}"
+        state: absent
+      loop: "{{ demo_credentials }}"
+      loop_control:
+        label: "{{ item.organization }} / {{ item.name }}"
+
+    # Labels cannot be deleted through the controller API; the controller
+    # garbage-collects labels once nothing references them (the referencing
+    # job templates are removed below).
+
     - name: Remove demo job templates
       ansible.controller.job_template:
         name: "{{ item.name }}"
