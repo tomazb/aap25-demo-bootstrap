@@ -27,7 +27,8 @@ jobs:
           python -m pip install --upgrade pip
           # ansible-core 2.16 matches the AAP 2.5 tooling line; do NOT add
           # AAP 2.6 collections. PyYAML comes in as a dependency.
-          pip install "ansible-core==2.16.14" "pytest==8.4.2"
+          pip install "ansible-core==2.16.14" "pytest==8.4.2" \
+            "ansible-lint==24.12.2"
 
       - name: Unit tests (pure-Python filters)
         run: python3 -m pytest tests/ -v
@@ -37,6 +38,16 @@ jobs:
 
       - name: Offline playbook syntax check
         run: tests/syntax_check.sh
+
+      # Runs after the syntax check so the stub collections it generates in
+      # .tmp/collections (including the controller action group used by
+      # module_defaults) resolve for lint's own syntax pass.
+      - name: Ansible lint (offline, stub collections)
+        run: >-
+          ANSIBLE_COLLECTIONS_PATH=.tmp/collections
+          ansible-lint --offline
+          bootstrap.yml teardown.yml verify_smoke.yml verify_parity.yml
+          verify_functional.yml verify_rbac.yml tasks/ content/
 
       - name: Pagination integration (local server)
         run: tests/pagination_offline.sh

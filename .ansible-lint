@@ -1,0 +1,15 @@
+---
+# Offline lint config for CI (tests run with no Galaxy/Automation Hub access).
+# Run AFTER tests/syntax_check.sh with ANSIBLE_COLLECTIONS_PATH=.tmp/collections
+# so the stub ansible.platform / ansible.controller collections (including the
+# controller action group used by module_defaults) resolve.
+skip_list:
+  # Dynamic per-item labels ("{{ parity_item.key }}: ...", "{{ check.type }}:
+  # ...") are an established repository pattern: included task files run once
+  # per object type/check and the leading template is what makes run output
+  # attributable. Moving the template to the end would degrade the logs.
+  - name[template]
+  # Task names deliberately start with the lowercase check-type token
+  # (job_template:, ssh_canary_job:, ...) so log lines match the
+  # functional_checks `type:` values verbatim.
+  - name[casing]

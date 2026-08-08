@@ -32,11 +32,13 @@
     - name: Report NOT_RUN when no rbac_users are configured
       when: rbac_users | length == 0
       block:
-        - ansible.builtin.file:
+        - name: Ensure report directory exists (empty run)
+          ansible.builtin.file:
             path: "{{ verify_report_dir }}"
             state: directory
             mode: "0755"
-        - ansible.builtin.copy:
+        - name: Write NOT_RUN report
+          ansible.builtin.copy:
             dest: "{{ verify_report_dir }}/rbac-{{ rbac_timestamp }}.md"
             mode: "0644"
             content: |
@@ -58,7 +60,8 @@
               No rbac_users configured. Configure them in
               config/verify.customer.yml, or pass -e rbac_allow_empty=true to
               accept a NOT_RUN result (exit 0). NOT_RUN is never PASS.
-        - ansible.builtin.meta: end_play
+        - name: End play after NOT_RUN report
+          ansible.builtin.meta: end_play
 
     - name: Validate each rbac_users entry
       ansible.builtin.assert:
