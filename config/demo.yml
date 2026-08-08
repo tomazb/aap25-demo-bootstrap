@@ -238,6 +238,7 @@ demo_credentials:
 demo_labels:
   - name: demo-controlled
     organization: Demo Platform
+    target_job_template: Demo 05 - Controlled outcome
 
 demo_notification_templates:
   - name: Demo Webhook Notifier

@@ -362,7 +362,9 @@
              ~ ' (status=' ~ (item.status | default('unreachable')) ~ ')'
              if (item.status | default(0) | int) != 200
              else 'schedule missing: ' ~ item.item.name
-             if (smoke_sched_matches | length) != 1
+             if (smoke_sched_matches | length) == 0
+             else 'duplicate schedule: ' ~ item.item.name
+             if (smoke_sched_matches | length) > 1
              else 'schedule disabled: ' ~ item.item.name
              if not (smoke_sched_matches[0].enabled | default(false))
              else 'schedule has no next_run: ' ~ item.item.name] }}

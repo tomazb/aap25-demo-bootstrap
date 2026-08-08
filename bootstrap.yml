@@ -346,12 +346,18 @@
       loop_control:
         label: "{{ item.name }}"
 
-    - name: Attach demo labels to the controlled-outcome template
+    # Labels are grouped per target template so several labels on one template
+    # arrive in a single update (the labels parameter replaces the full list).
+    # Assumes each label's organization matches its target template's.
+    - name: Attach demo labels to their target job templates
       ansible.controller.job_template:
-        name: Demo 05 - Controlled outcome
-        organization: Demo Platform
-        labels: "{{ demo_labels | map(attribute='name') | list }}"
+        name: "{{ item.0 }}"
+        organization: "{{ (item.1 | first).organization }}"
+        labels: "{{ item.1 | map(attribute='name') | list }}"
         state: present
+      loop: "{{ demo_labels | groupby('target_job_template') }}"
+      loop_control:
+        label: "{{ item.0 }}"
 
     - name: Grant teams admin rights on their organization inventories
       ansible.controller.role_team_assignment:
