@@ -17,6 +17,8 @@ This repository populates a fresh Ansible Automation Platform 2.5 installation w
 
 No task contacts a real managed host. Every synthetic host uses `ansible_connection: local`, and the content is limited to `debug`, `assert`, `set_stats`, and an intentional `fail` task.
 
+In a hurry? [QUICK-HOWTO.md](QUICK-HOWTO.md) is a one-page copy-pasteable deployment path; the sections below explain each step and cover migration verification.
+
 ## 1. Publish this repository
 
 Push the complete directory to a Git repository that the AAP controller can reach. The controller project uses this same repository as its SCM source.
