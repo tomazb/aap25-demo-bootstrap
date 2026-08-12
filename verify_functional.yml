@@ -176,7 +176,8 @@
             pg_user: "{{ aap_username }}"
             pg_password: "{{ aap_password }}"
             pg_validate_certs: "{{ aap_validate_certs }}"
-        - ansible.builtin.include_tasks: tasks/paginated_get.yml
+        - name: Fetch enabled-schedule pages
+          ansible.builtin.include_tasks: tasks/paginated_get.yml
         - name: Record schedule-query failure or truncation
           ansible.builtin.set_fact:
             functional_failures: >-

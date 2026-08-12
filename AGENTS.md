@@ -10,7 +10,11 @@ managed host.
 - `bootstrap.yml` — single playbook; runs from localhost against the platform
   gateway (`ansible.platform`) and controller (`ansible.controller`).
 - `config/demo.yml` — all demo data: orgs, teams, users, inventories, hosts,
-  groups, projects, job templates, seed jobs.
+  groups, projects, job templates, seed jobs, plus credentials, labels,
+  notification templates, workflow job templates and schedules so every
+  enabled `parity_types` entry is exercised by seeded content (execution
+  environments deliberately excepted — a custom EE needs a pullable image;
+  the default EEs exercise that parity type).
 - `config/secrets.example.yml` — template for the Vault-encrypted
   `config/secrets.yml` (gitignored) holding `demo_user_password`.
 - `content/playbooks/` — playbooks synced into the controller projects via SCM.
@@ -41,6 +45,15 @@ managed host.
   `module_defaults: group/ansible.controller.controller` because most 4.6.x
   builds only read `CONTROLLER_*` env vars. Keep new controller tasks inside
   that group's coverage (all standard modules are).
+- `bootstrap.yml` and `teardown.yml` assert HTTPS + certificate validation
+  before sending the admin credential (lab-only `bootstrap_allow_insecure` /
+  `teardown_allow_insecure` overrides, default false). Do not weaken this.
+- Workflow nodes are created in two passes (create all nodes, then link
+  `success_nodes`) so a link never references a not-yet-created identifier.
+- Labels cannot be deleted through the controller API; teardown relies on the
+  controller garbage-collecting unreferenced labels once the referencing job
+  templates are removed. The seed job history assert: items marked
+  `expect_failure` must actually fail, or bootstrap fails.
 - Gateway -> controller propagation is a periodic pull (15-minute default).
   The `Wait for gateway organizations to propagate to the controller` task
   polls `/api/controller/v2/organizations/` before any controller object is

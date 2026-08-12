@@ -13,6 +13,10 @@
     aap_bootstrap_password: "{{ lookup('ansible.builtin.env', 'AAP_PASSWORD') }}"
     aap_bootstrap_validate_certs: >-
       {{ (lookup('ansible.builtin.env', 'AAP_VALIDATE_CERTS') or 'true') | bool }}
+    # Lab-only escape hatch, mirroring the verify_* playbooks. Default false;
+    # when true the HTTPS/cert requirement below is relaxed. Never use this
+    # against a real target.
+    bootstrap_allow_insecure: false
 
   # Controller modules only read CONTROLLER_* environment variables on most
   # ansible.controller 4.6.x builds (AAP_* support arrived late in the 4.6.z
@@ -38,6 +42,19 @@
         fail_msg: >-
           Export AAP_HOSTNAME, AAP_USERNAME, AAP_PASSWORD and pass
           -e demo_scm_url=https://your.git.example/aap/aap25-demo-bootstrap.git
+
+    - name: Require secure transport before sending admin credentials
+      ansible.builtin.assert:
+        that:
+          - aap_bootstrap_hostname is match('^https://')
+          - aap_bootstrap_validate_certs | bool
+        fail_msg: >-
+          Export an HTTPS AAP_HOSTNAME and keep certificate validation enabled
+          (install private CA trust rather than disabling it). Admin
+          credentials must not be sent over HTTP or without certificate
+          validation. Set -e bootstrap_allow_insecure=true only for a
+          throwaway lab.
+      when: not (bootstrap_allow_insecure | bool)
 
   tasks:
     - name: Create demo organizations through platform gateway
@@ -249,6 +266,99 @@
                 - production
               default: development
 
+    - name: Create demo credentials
+      ansible.controller.credential:
+        name: "{{ item.name }}"
+        organization: "{{ item.organization }}"
+        credential_type: "{{ item.credential_type }}"
+        description: "{{ item.description }}"
+        inputs: "{{ item.inputs }}"
+        update_secrets: false
+        state: present
+      loop: "{{ demo_credentials }}"
+      loop_control:
+        label: "{{ item.organization }} / {{ item.name }}"
+
+    - name: Create demo labels
+      ansible.controller.label:
+        name: "{{ item.name }}"
+        organization: "{{ item.organization }}"
+      loop: "{{ demo_labels }}"
+      loop_control:
+        label: "{{ item.organization }} / {{ item.name }}"
+
+    - name: Create demo notification templates
+      ansible.controller.notification_template:
+        name: "{{ item.name }}"
+        organization: "{{ item.organization }}"
+        description: "{{ item.description }}"
+        notification_type: "{{ item.notification_type }}"
+        notification_configuration: "{{ item.notification_configuration }}"
+        state: present
+      loop: "{{ demo_notification_templates }}"
+      loop_control:
+        label: "{{ item.organization }} / {{ item.name }}"
+
+    - name: Create demo workflow job templates
+      ansible.controller.workflow_job_template:
+        name: "{{ item.name }}"
+        organization: "{{ item.organization }}"
+        description: "{{ item.description }}"
+        state: present
+      loop: "{{ demo_workflow_job_templates }}"
+      loop_control:
+        label: "{{ item.organization }} / {{ item.name }}"
+
+    # Two-pass node creation: create every node first, then link success
+    # paths, so a link never references a not-yet-created node identifier.
+    - name: Create demo workflow nodes
+      ansible.controller.workflow_job_template_node:
+        workflow_job_template: "{{ item.0.name }}"
+        organization: "{{ item.0.organization }}"
+        identifier: "{{ item.1.identifier }}"
+        unified_job_template: "{{ item.1.unified_job_template }}"
+        state: present
+      loop: "{{ demo_workflow_job_templates | subelements('nodes') }}"
+      loop_control:
+        label: "{{ item.0.name }} / {{ item.1.identifier }}"
+
+    - name: Link demo workflow node success paths
+      ansible.controller.workflow_job_template_node:
+        workflow_job_template: "{{ item.0.name }}"
+        organization: "{{ item.0.organization }}"
+        identifier: "{{ item.1.identifier }}"
+        success_nodes: "{{ item.1.success_nodes }}"
+        state: present
+      loop: "{{ demo_workflow_job_templates | subelements('nodes') }}"
+      loop_control:
+        label: "{{ item.0.name }} / {{ item.1.identifier }}"
+      when: item.1.success_nodes | length > 0
+
+    - name: Create demo schedules
+      ansible.controller.schedule:
+        name: "{{ item.name }}"
+        unified_job_template: "{{ item.unified_job_template }}"
+        description: "{{ item.description }}"
+        rrule: "{{ item.rrule }}"
+        enabled: "{{ item.enabled }}"
+        state: present
+      loop: "{{ demo_schedules }}"
+      loop_control:
+        label: "{{ item.name }}"
+
+    # Labels are grouped per target template so several labels on one template
+    # arrive in a single update (the labels parameter replaces the full list).
+    # Assumes each label's organization matches its target template's.
+    - name: Attach demo labels to their target job templates
+      ansible.controller.job_template:
+        name: "{{ item.0 }}"
+        organization: "{{ (item.1 | first).organization }}"
+        labels: "{{ item.1 | map(attribute='name') | list }}"
+        state: present
+      loop: "{{ demo_labels | groupby('target_job_template') }}"
+      loop_control:
+        label: "{{ item.0 }}"
+
     - name: Grant teams admin rights on their organization inventories
       ansible.controller.role_team_assignment:
         role_definition: Inventory Admin
@@ -297,5 +407,25 @@
       loop_control:
         label: "{{ item.organization }} / {{ item.template }}"
       ignore_errors: "{{ item.expect_failure | default(false) }}"
+      register: demo_seed_results
+      tags:
+        - seed_history
+
+    # ignore_errors above swallows BOTH outcomes for expect_failure items; an
+    # unexpectedly-successful "controlled failure" must fail bootstrap here,
+    # not surface later in the smoke gate.
+    - name: Assert intentional-failure seed jobs actually failed
+      ansible.builtin.assert:
+        that:
+          - item is failed
+        fail_msg: >-
+          Seed job '{{ item.item.template }}' was expected to fail but
+          succeeded; the controlled-outcome demo content is wrong.
+      loop: >-
+        {{ demo_seed_results.results
+           | selectattr('item.expect_failure', 'defined')
+           | selectattr('item.expect_failure') | list }}
+      loop_control:
+        label: "{{ item.item.template }}"
       tags:
         - seed_history

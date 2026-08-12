@@ -20,7 +20,8 @@
         functional_passed: >-
           {{ functional_passed + ['private_scm_project_update ' ~ check.name] }}
   rescue:
-    - ansible.builtin.set_fact:
+    - name: "Record private_scm_project_update failure: {{ check.name }}"
+      ansible.builtin.set_fact:
         functional_failures: >-
           {{ functional_failures + ['private_scm_project_update ' ~ check.name
              ~ ' failed'] }}
@@ -64,7 +65,8 @@
           {{ functional_passed + ['execution_environment_job ' ~ check.name
              ~ ' (job ' ~ functional_ee_job.id ~ ')'] }}
   rescue:
-    - ansible.builtin.set_fact:
+    - name: "Record execution_environment_job failure: {{ check.name }}"
+      ansible.builtin.set_fact:
         functional_failures: >-
           {{ functional_failures + ['execution_environment_job ' ~ check.name
              ~ ' failed'] }}
@@ -148,7 +150,8 @@
           {{ functional_passed + ['external_credential_job ' ~ check.name
              ~ ' (job ' ~ functional_extcred.id ~ ')'] }}
   rescue:
-    - ansible.builtin.set_fact:
+    - name: "Record external_credential_job failure: {{ check.name }}"
+      ansible.builtin.set_fact:
         functional_failures: >-
           {{ functional_failures + ['external_credential_job ' ~ check.name
              ~ ' failed'] }}
@@ -174,7 +177,8 @@
           {{ functional_passed + ['workflow_launch ' ~ check.name
              ~ ' (' ~ functional_wf.status | default('?') ~ ')'] }}
   rescue:
-    - ansible.builtin.set_fact:
+    - name: "Record workflow_launch failure: {{ check.name }}"
+      ansible.builtin.set_fact:
         functional_failures: >-
           {{ functional_failures + ['workflow_launch ' ~ check.name ~ ' failed'] }}
 
@@ -195,7 +199,8 @@
         functional_passed: >-
           {{ functional_passed + ['inventory_source_update ' ~ check.name] }}
   rescue:
-    - ansible.builtin.set_fact:
+    - name: "Record inventory_source_update failure: {{ check.name }}"
+      ansible.builtin.set_fact:
         functional_failures: >-
           {{ functional_failures + ['inventory_source_update ' ~ check.name
              ~ ' failed'] }}
@@ -271,7 +276,8 @@
         functional_passed: >-
           {{ functional_passed + ['servicenow_notification_test ' ~ check.name] }}
   rescue:
-    - ansible.builtin.set_fact:
+    - name: "Record servicenow_notification_test failure: {{ check.name }}"
+      ansible.builtin.set_fact:
         functional_failures: >-
           {{ functional_failures + ['servicenow_notification_test ' ~ check.name
              ~ ' failed'] }}

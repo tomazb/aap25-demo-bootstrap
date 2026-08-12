@@ -221,6 +221,57 @@ demo_job_templates:
     description: Produces either a successful or intentionally failed job
     survey: false
 
+# Additional object types so every enabled parity type in config/verify.yml is
+# exercised by seeded content. Execution environments are deliberately NOT
+# seeded: a custom EE needs a pullable image, and a broken image reference is
+# worse demo content than none. Default EEs exist on both sides of a
+# migration and exercise that parity type.
+demo_credentials:
+  - name: Demo Platform Machine Credential
+    organization: Demo Platform
+    credential_type: Machine
+    description: Synthetic machine credential; the password is a fake literal
+    inputs:
+      username: demo-service
+      password: demo-not-a-real-secret
+
+demo_labels:
+  - name: demo-controlled
+    organization: Demo Platform
+    target_job_template: Demo 05 - Controlled outcome
+
+demo_notification_templates:
+  - name: Demo Webhook Notifier
+    organization: Demo Linux
+    notification_type: webhook
+    description: Safe webhook notifier; target URL is non-routable by design
+    notification_configuration:
+      url: https://demo-notifications.invalid/hook
+      http_method: POST
+      headers: {}
+      disable_ssl_verification: false
+      username: ""
+      password: ""
+
+demo_workflow_job_templates:
+  - name: Demo WF - Linux hello then report
+    organization: Demo Platform
+    description: Chains the hello demo into the inventory report demo
+    nodes:
+      - identifier: hello
+        unified_job_template: Demo 01 - Linux hello
+        success_nodes: [report]
+      - identifier: report
+        unified_job_template: Demo 02 - Linux inventory report
+        success_nodes: []
+
+demo_schedules:
+  - name: Demo Weekly Hello
+    unified_job_template: Demo 01 - Linux hello
+    description: Weekly recurring safe hello run
+    rrule: "DTSTART;TZID=UTC:20260803T060000 RRULE:FREQ=WEEKLY;INTERVAL=1;BYDAY=MO"
+    enabled: true
+
 demo_seed_jobs:
   - template: Demo 01 - Linux hello
     organization: Demo Linux

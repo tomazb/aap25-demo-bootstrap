@@ -34,6 +34,13 @@ PROJ = {p["name"]: p["organization"] for p in DEMO["demo_projects"]}
 # Assign a stable current id to each job template.
 JT = {j["name"]: {"org": j["organization"], "id": 100 + n}
       for n, j in enumerate(DEMO["demo_job_templates"])}
+WF = {w["name"]: w["organization"]
+      for w in DEMO.get("demo_workflow_job_templates", [])}
+NT = {t["name"]: t["organization"]
+      for t in DEMO.get("demo_notification_templates", [])}
+CRED = {c["name"]: c["organization"] for c in DEMO.get("demo_credentials", [])}
+SCHED = {s["name"]: s["unified_job_template"]
+         for s in DEMO.get("demo_schedules", [])}
 CONTROLLED = "Demo 05 - Controlled outcome"
 FIRST_PROJECT = DEMO["demo_projects"][0]["name"]
 FIRST_INV = DEMO["demo_inventories"][0]["name"]
@@ -189,6 +196,18 @@ class Handler(BaseHTTPRequestHandler):
                         200, _list([{"id": 1, "status": "successful"}]))
             return self._send(200, _list([]))
 
+        if path == "/api/controller/v2/workflow_job_templates/":
+            if SCENARIO != "missing_workflow" and name in WF:
+                return self._send(200, _list([{"name": name, "summary_fields":
+                    {"organization": {"name": WF[name]}}}]))
+            return self._send(200, _list([]))
+
+        if path == "/api/controller/v2/credentials/":
+            if name in CRED:
+                return self._send(200, _list([{"name": name, "summary_fields":
+                    {"organization": {"name": CRED[name]}}}]))
+            return self._send(200, _list([]))
+
         # --- customer-functional readback endpoints (env-driven) ------------
         # Job readback: returns the execution environment name for EE checks.
         if re.match(r"^/api/controller/v2/jobs/\d+/$", path):
@@ -200,8 +219,13 @@ class Handler(BaseHTTPRequestHandler):
                 "status": "successful",
                 "summary_fields": {"execution_environment": {"name": ee}}})
 
-        # Notification templates lookup (org-scoped, count controlled by env).
+        # Notification templates lookup. Demo rows (smoke) answer first; the
+        # env-driven customer-functional fallback keeps its behavior for any
+        # non-demo name.
         if path == "/api/controller/v2/notification_templates/":
+            if name in NT:
+                return self._send(200, _list([{"id": 800, "name": name,
+                    "summary_fields": {"organization": {"name": NT[name]}}}]))
             n = int(os.environ.get("CUSTOMER_SNOW_MATCHES", "1"))
             org = os.environ.get("CUSTOMER_SNOW_ORG", "PLACEHOLDER Org")
             rows = [{"id": 900 + i, "name": name,
@@ -215,9 +239,15 @@ class Handler(BaseHTTPRequestHandler):
                 "id": int(path.rstrip("/").rsplit("/", 1)[1]),
                 "status": os.environ.get("CUSTOMER_SNOW_STATUS", "successful")})
 
-        # Enabled schedules (empty by default so the functional schedule check
-        # finds nothing to fault).
+        # Schedules. Demo rows (smoke, name-filtered) answer first; the
+        # unfiltered enabled-schedule functional check keeps its empty default.
         if path == "/api/controller/v2/schedules/":
+            if name in SCHED:
+                return self._send(200, _list([{
+                    "name": name, "enabled": True,
+                    "next_run": "2027-01-04T06:00:00Z",
+                    "summary_fields":
+                        {"unified_job_template": {"name": SCHED[name]}}}]))
             return self._send(200, _list([]))
 
         return self._send(404, {"detail": "not found"})

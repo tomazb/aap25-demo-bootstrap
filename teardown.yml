@@ -13,6 +13,10 @@
     aap_bootstrap_password: "{{ lookup('ansible.builtin.env', 'AAP_PASSWORD') }}"
     aap_bootstrap_validate_certs: >-
       {{ (lookup('ansible.builtin.env', 'AAP_VALIDATE_CERTS') or 'true') | bool }}
+    # Lab-only escape hatch, mirroring the verify_* playbooks. Default false;
+    # when true the HTTPS/cert requirement below is relaxed. Never use this
+    # against a real target.
+    teardown_allow_insecure: false
 
   module_defaults:
     group/ansible.controller.controller:
@@ -30,10 +34,64 @@
           - lookup('ansible.builtin.env', 'AAP_PASSWORD') | length > 0
         fail_msg: Export AAP_HOSTNAME, AAP_USERNAME and AAP_PASSWORD first.
 
+    - name: Require secure transport before sending admin credentials
+      ansible.builtin.assert:
+        that:
+          - aap_bootstrap_hostname is match('^https://')
+          - aap_bootstrap_validate_certs | bool
+        fail_msg: >-
+          Export an HTTPS AAP_HOSTNAME and keep certificate validation enabled
+          (install private CA trust rather than disabling it). Admin
+          credentials must not be sent over HTTP or without certificate
+          validation. Set -e teardown_allow_insecure=true only for a
+          throwaway lab.
+      when: not (teardown_allow_insecure | bool)
+
   tasks:
     # Strict reverse dependency order relative to bootstrap.yml. Job
     # history of deleted templates remains visible in the controller by
     # design.
+    - name: Remove demo schedules
+      ansible.controller.schedule:
+        name: "{{ item.name }}"
+        unified_job_template: "{{ item.unified_job_template }}"
+        state: absent
+      loop: "{{ demo_schedules }}"
+      loop_control:
+        label: "{{ item.name }}"
+
+    - name: Remove demo workflow job templates
+      ansible.controller.workflow_job_template:
+        name: "{{ item.name }}"
+        organization: "{{ item.organization }}"
+        state: absent
+      loop: "{{ demo_workflow_job_templates }}"
+      loop_control:
+        label: "{{ item.organization }} / {{ item.name }}"
+
+    - name: Remove demo notification templates
+      ansible.controller.notification_template:
+        name: "{{ item.name }}"
+        organization: "{{ item.organization }}"
+        state: absent
+      loop: "{{ demo_notification_templates }}"
+      loop_control:
+        label: "{{ item.organization }} / {{ item.name }}"
+
+    - name: Remove demo credentials
+      ansible.controller.credential:
+        name: "{{ item.name }}"
+        organization: "{{ item.organization }}"
+        credential_type: "{{ item.credential_type }}"
+        state: absent
+      loop: "{{ demo_credentials }}"
+      loop_control:
+        label: "{{ item.organization }} / {{ item.name }}"
+
+    # Labels cannot be deleted through the controller API; the controller
+    # garbage-collects labels once nothing references them (the referencing
+    # job templates are removed below).
+
     - name: Remove demo job templates
       ansible.controller.job_template:
         name: "{{ item.name }}"
