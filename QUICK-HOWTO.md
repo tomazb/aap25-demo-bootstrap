@@ -109,11 +109,15 @@ no-users command below. Team content roles are still assigned.
 
 ## 4. Run the bootstrap
 
+Replace `<commit-sha-or-immutable-tag>` with a fixed ref that contains this
+bootstrap content. Use that exact ref again for configuration-only reruns so a
+moving branch tip cannot change the content being converged.
+
 ```bash
 aap_run bootstrap.yml \
   -e \
   demo_scm_url='https://git.example.com/automation/aap25-demo-bootstrap.git' \
-  -e demo_scm_branch='main' \
+  -e demo_scm_branch='<commit-sha-or-immutable-tag>' \
   -e @config/secrets.yml --ask-vault-pass
 ```
 
@@ -123,7 +127,7 @@ Without local users, omit the secrets file and Vault prompt:
 aap_run bootstrap.yml \
   -e \
   demo_scm_url='https://git.example.com/automation/aap25-demo-bootstrap.git' \
-  -e demo_scm_branch='main' \
+  -e demo_scm_branch='<commit-sha-or-immutable-tag>' \
   -e demo_create_users=false
 ```
 
@@ -139,6 +143,7 @@ configuration without generating new job records:
 aap_run bootstrap.yml \
   -e \
   demo_scm_url='https://git.example.com/automation/aap25-demo-bootstrap.git' \
+  -e demo_scm_branch='<commit-sha-or-immutable-tag>' \
   -e @config/secrets.yml --ask-vault-pass \
   --skip-tags seed_history
 ```
@@ -149,6 +154,7 @@ For a no-users deployment, the equivalent rerun is:
 aap_run bootstrap.yml \
   -e \
   demo_scm_url='https://git.example.com/automation/aap25-demo-bootstrap.git' \
+  -e demo_scm_branch='<commit-sha-or-immutable-tag>' \
   -e demo_create_users=false \
   --skip-tags seed_history
 ```
