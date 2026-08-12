@@ -236,11 +236,23 @@ again first if you opened a new shell.
 
 ### Layer 1 - target smoke gate
 
-Run `bootstrap.yml` against the OCP target, then:
+Run `bootstrap.yml` against the OCP target. If local users were enabled, run:
 
 ```bash
-aap_run verify_smoke.yml     # asserts demo objects, sync and history
-aap_run teardown.yml         # removes all demo content afterwards
+aap_run verify_smoke.yml     # asserts demo objects, sync, users, and history
+```
+
+If bootstrap used `demo_create_users=false`, run this command instead (do not
+run both smoke commands):
+
+```bash
+aap_run verify_smoke.yml -e demo_create_users=false
+```
+
+After the selected smoke check passes, remove all demo content:
+
+```bash
+aap_run teardown.yml
 ```
 
 This proves admin authentication, API availability, resource synchronization
