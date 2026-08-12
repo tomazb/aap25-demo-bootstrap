@@ -43,7 +43,7 @@ the control node. Stock RHEL 8 `python3` is 3.6, which cannot run it. Either:
 
 - install a newer application stream and use it for ansible-core and the
   collections: `sudo dnf install python3.12` then
-  `python3.12 -m pip install --user ansible-core`, or
+  `python3.12 -m pip install --user ansible-core==2.16.14`, or
 - run the playbooks from an AAP execution environment with
   `ansible-navigator`, which needs no Python on the host beyond the runner.
 
@@ -79,7 +79,9 @@ ansible-vault encrypt config/secrets.yml
 
 The same password is applied to all six demo users. Re-running the bootstrap does not rotate existing passwords (`update_secrets: false`); change passwords in the UI, or delete the users and re-run.
 
-To bootstrap without local users (for example when teams map to an external IdP), skip this section and pass `-e demo_create_users=false`. Team content roles are still assigned; only user creation and user role assignments are skipped.
+To bootstrap without local users (for example when teams map to an external
+IdP), skip this section and use the no-users command below. Team content roles
+are still assigned; only user creation and user role assignments are skipped.
 
 ## 5. Run the bootstrap
 
@@ -88,6 +90,16 @@ ansible-playbook bootstrap.yml \
   -e demo_scm_url='https://git.example.com/automation/aap25-demo-bootstrap.git' \
   -e demo_scm_branch='main' \
   -e @config/secrets.yml --ask-vault-pass
+```
+
+Without local users, omit the secrets file and Vault prompt:
+
+```bash
+ansible-playbook bootstrap.yml \
+  -e \
+  demo_scm_url='https://git.example.com/automation/aap25-demo-bootstrap.git' \
+  -e demo_scm_branch='main' \
+  -e demo_create_users=false
 ```
 
 On a fresh instance the task `Wait for gateway organizations to propagate to the controller` can pause for up to 15 minutes: the controller learns about gateway-created organizations through a periodic resource sync with a 15-minute default interval. This is expected; the bootstrap continues as soon as all three organizations are visible on the controller side.
@@ -103,28 +115,50 @@ ansible-playbook bootstrap.yml \
   --skip-tags seed_history
 ```
 
-The history task is tagged `seed_history`; omit that tag when you want configuration convergence without generating new job records.
+For a no-users deployment, the equivalent rerun is:
+
+```bash
+ansible-playbook bootstrap.yml \
+  -e \
+  demo_scm_url='https://git.example.com/automation/aap25-demo-bootstrap.git' \
+  -e demo_create_users=false \
+  --skip-tags seed_history
+```
+
+The history task is tagged `seed_history`; use `--skip-tags seed_history` when
+you want configuration convergence without generating new job records.
 
 ## 6. Post-bootstrap checks
 
-Verify in the unified UI:
+In every mode, verify in the unified UI:
 
-1. Access Management -> Organizations: `Demo Linux`, `Demo Network`, `Demo Platform`.
-2. Access Management -> Users: `demo-alice`, `demo-bob`, `demo-carol`, `demo-dave`, `demo-erin`, `demo-frank`.
-3. Access Management -> Teams: three teams, each with one `Team Admin` and one `Team Member` user, and roles on their organization's content.
-4. Automation Execution -> Infrastructure -> Inventories: three demo inventories.
-5. Automation Execution -> Projects: three successful SCM project syncs.
-6. Automation Execution -> Templates: five demo job templates.
-7. Jobs: successful runs plus one intentional failed run.
-8. Automation Execution -> Templates: the `Demo WF - Linux hello then report`
+1. Access Management -> Organizations: `Demo Linux`, `Demo Network`, and
+   `Demo Platform`.
+2. Access Management -> Teams: three teams, each with roles on its
+   organization's content.
+3. Automation Execution -> Infrastructure -> Inventories: three demo
+   inventories.
+4. Automation Execution -> Projects: three successful SCM project syncs.
+5. Automation Execution -> Templates: five demo job templates.
+6. Jobs: successful runs plus one intentional failed run.
+7. Automation Execution -> Templates: the `Demo WF - Linux hello then report`
    workflow template.
-9. Automation Execution -> Schedules: `Demo Weekly Hello`, enabled, with a
+8. Automation Execution -> Schedules: `Demo Weekly Hello`, enabled, with a
    populated next run.
-10. Automation Execution -> Administration -> Notifiers: `Demo Webhook
-    Notifier`.
-11. Automation Execution -> Infrastructure -> Credentials: `Demo Platform
+9. Automation Execution -> Administration -> Notifiers: `Demo Webhook
+   Notifier`.
+10. Automation Execution -> Infrastructure -> Credentials: `Demo Platform
     Machine Credential`.
-12. Log in as `demo-alice` (Demo Linux team admin): only the Demo Linux inventory, project, and templates are visible and manageable; the other two organizations' content is not.
+
+When `demo_create_users=true`, also verify:
+
+1. Access Management -> Users: `demo-alice`, `demo-bob`, `demo-carol`,
+   `demo-dave`, `demo-erin`, and `demo-frank`.
+2. Access Management -> Teams: each team has one `Team Admin` and one
+   `Team Member` user.
+3. Log in as `demo-alice` (Demo Linux team admin): only the Demo Linux
+   inventory, project, and templates are visible and manageable; the other
+   two organizations' content is not.
 
 ## 7. Migration verification (AAP 2.5 RPM -> AAP 2.5 on OpenShift)
 

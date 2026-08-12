@@ -1,4 +1,4 @@
-# Quick howto: deploy the AAP 2.5 demo bootstrap
+# Quick how-to: deploy the AAP 2.5 demo bootstrap
 
 A one-page, copy-pasteable path from an empty AAP 2.5 installation to a fully
 seeded demo environment. For the reasoning behind each step, the full option
@@ -14,8 +14,9 @@ list, and the migration-verification playbooks, see [README.md](README.md).
 - A control node with Python 3.10-3.12. Stock RHEL 8 `python3` is 3.6 and
   cannot run ansible-core 2.16; install a newer application stream
   (`sudo dnf install python3.12`, then `python3.12 -m pip install --user
-  ansible-core`) or run the playbooks from an execution environment with
-  `ansible-navigator`. See [README section 2a](README.md#2a-control-node-prerequisites-rhel-8).
+  ansible-core==2.16.14`) or run the playbooks from an execution environment
+  with `ansible-navigator`. See
+  [README section 2a](README.md#2a-control-node-prerequisites-rhel-8).
 
 ## 1. Install the AAP-matched collections
 
@@ -58,17 +59,27 @@ The same password applies to all six demo users. `config/secrets.yml` is
 gitignored. Re-running the bootstrap does not rotate existing passwords.
 
 To bootstrap without local users -- for example when the teams map to an
-external identity provider -- skip this step entirely and add
-`-e demo_create_users=false` to the run below. Team content roles are still
-assigned.
+external identity provider -- skip this step entirely and use the separate
+no-users command below. Team content roles are still assigned.
 
 ## 4. Run the bootstrap
 
 ```bash
 ansible-playbook bootstrap.yml \
-  -e demo_scm_url='https://git.example.com/automation/aap25-demo-bootstrap.git' \
+  -e \
+  demo_scm_url='https://git.example.com/automation/aap25-demo-bootstrap.git' \
   -e demo_scm_branch='main' \
   -e @config/secrets.yml --ask-vault-pass
+```
+
+Without local users, omit the secrets file and Vault prompt:
+
+```bash
+ansible-playbook bootstrap.yml \
+  -e \
+  demo_scm_url='https://git.example.com/automation/aap25-demo-bootstrap.git' \
+  -e demo_scm_branch='main' \
+  -e demo_create_users=false
 ```
 
 On a fresh instance, the task *Wait for gateway organizations to propagate to
@@ -81,25 +92,49 @@ configuration without generating new job records:
 
 ```bash
 ansible-playbook bootstrap.yml \
-  -e demo_scm_url='https://git.example.com/automation/aap25-demo-bootstrap.git' \
+  -e \
+  demo_scm_url='https://git.example.com/automation/aap25-demo-bootstrap.git' \
   -e @config/secrets.yml --ask-vault-pass \
+  --skip-tags seed_history
+```
+
+For a no-users deployment, the equivalent rerun is:
+
+```bash
+ansible-playbook bootstrap.yml \
+  -e \
+  demo_scm_url='https://git.example.com/automation/aap25-demo-bootstrap.git' \
+  -e demo_create_users=false \
   --skip-tags seed_history
 ```
 
 ## 5. Check the result
 
-In the unified UI, confirm three `Demo *` organizations and teams, six
-`demo-*` users, three inventories, three successfully synced projects, five
-job templates, one workflow template, one enabled schedule, one notifier, one
-machine credential, and a job list containing both successful runs and one
-intentional failure. Then log in as `demo-alice` and confirm only Demo Linux
-content is visible. The full checklist is
-[README section 6](README.md#6-post-bootstrap-checks).
+In the unified UI, confirm three `Demo *` organizations and teams, three
+inventories, three successfully synced projects, five job templates, one
+workflow template, one enabled schedule, one notifier, one machine credential,
+and a job list containing both successful runs and one intentional failure. If
+local users were enabled, also confirm six `demo-*` users, then log in as
+`demo-alice` and confirm only Demo Linux content is visible. The full checklist
+is [README section 6](README.md#6-post-bootstrap-checks).
 
 For a scriptable equivalent of those checks:
 
 ```bash
 ansible-playbook verify_smoke.yml
+```
+
+For a no-users deployment, pass the same setting to the smoke check:
+
+```bash
+ansible-playbook verify_smoke.yml -e demo_create_users=false
+```
+
+If the throwaway lab uses the insecure override, add the verification-specific
+override to either command above, for example:
+
+```bash
+ansible-playbook verify_smoke.yml -e smoke_allow_insecure=true
 ```
 
 This asserts the demo objects, project sync state, and job history, and exits
@@ -110,6 +145,12 @@ proves availability and content but not RBAC.
 
 ```bash
 ansible-playbook teardown.yml
+```
+
+For a throwaway lab that used the insecure override:
+
+```bash
+ansible-playbook teardown.yml -e teardown_allow_insecure=true
 ```
 
 Removes every object the bootstrap created. Job history rows belonging to
