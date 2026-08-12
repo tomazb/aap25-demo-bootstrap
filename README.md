@@ -23,13 +23,50 @@ In a hurry? [QUICK-HOWTO.md](QUICK-HOWTO.md) is a one-page copy-pasteable deploy
 
 Push the complete directory to a Git repository that the AAP controller can reach. The controller project uses this same repository as its SCM source.
 
-## 2. Install AAP-matched certified collections
+## 2. Select a runtime and install AAP-matched certified collections
 
 Use the collection versions provided by your AAP 2.5 private automation hub whenever possible.
+
+For the host-native Python path, install the collections and define the command
+used by the remaining sections:
 
 ```bash
 ansible-galaxy collection install -r requirements.yml
 ansible-galaxy collection list | grep -E 'ansible\.(platform|controller)'
+aap_run() { ansible-playbook "$@"; }
+aap_vault() { ansible-vault "$@"; }
+```
+
+For the execution-environment path, select a pullable AAP 2.5 image and install
+the collections into the playbook-adjacent `collections/` directory. Navigator
+automatically mounts the project directory, and Ansible discovers collections
+at that location. The directory is gitignored.
+
+```bash
+export AAP_EE_IMAGE='<pullable-AAP-2.5-EE-image>'
+ansible-navigator exec --eei "$AAP_EE_IMAGE" -- \
+  ansible-galaxy collection install -r requirements.yml -p ./collections
+ansible-navigator exec --eei "$AAP_EE_IMAGE" -- \
+  ansible-galaxy collection list -p ./collections
+
+aap_run() {
+  local playbook=$1 name
+  local -a pass_env=()
+  shift
+  for name in \
+    AAP_HOSTNAME AAP_USERNAME AAP_PASSWORD AAP_VALIDATE_CERTS \
+    SOURCE_AAP_HOSTNAME SOURCE_AAP_USERNAME SOURCE_AAP_PASSWORD \
+    SOURCE_AAP_VALIDATE_CERTS RBAC_DEMO_PASSWORD
+  do
+    [[ -v $name ]] && pass_env+=(--penv "$name")
+  done
+  ansible-navigator run "$playbook" --mode stdout --enable-prompts \
+    --eei "$AAP_EE_IMAGE" "${pass_env[@]}" -- "$@"
+}
+aap_vault() {
+  ansible-navigator exec --exshell false --eei "$AAP_EE_IMAGE" -- \
+    ansible-vault "$@"
+}
 ```
 
 Expected version families are `ansible.platform 2.5.x` and `ansible.controller 4.6.x`. Do not silently install 2.6/2.7 collection families against AAP 2.5.
@@ -44,8 +81,18 @@ the control node. Stock RHEL 8 `python3` is 3.6, which cannot run it. Either:
 - install a newer application stream and use it for ansible-core and the
   collections: `sudo dnf install python3.12` then
   `python3.12 -m pip install --user ansible-core==2.16.14`, or
-- run the playbooks from an AAP execution environment with
-  `ansible-navigator`, which needs no Python on the host beyond the runner.
+- install `ansible-navigator` on a supported host Python and run the playbooks
+  from an AAP execution environment. This route also requires Podman or Docker,
+  registry authentication, and a pullable AAP 2.5 image. The navigator setup
+  in section 2 supplies the required collections, passes the AAP environment
+  variables into the container, and enables Vault prompts.
+
+Define `aap_run` and `aap_vault` again after opening a new shell. For native
+runs they invoke `ansible-playbook` and `ansible-vault`; for
+execution-environment runs they invoke
+`ansible-navigator run <playbook> --mode stdout` while preserving all `-e`,
+`--ask-vault-pass`, and `--skip-tags` arguments shown below, and execute
+`ansible-vault` inside the same image.
 
 ## 3. Export bootstrap authentication
 
@@ -65,7 +112,10 @@ lab only, override with `-e bootstrap_allow_insecure=true` /
 
 The playbook feeds these values to the `ansible.controller` modules through `module_defaults`, so `CONTROLLER_*` environment variables are not needed. Most `ansible.controller` 4.6.x builds only read `CONTROLLER_*` variables, not `AAP_*`, which is why the playbook passes the values explicitly instead of relying on the environment.
 
-For a private CA, install the CA trust on the bootstrap host instead of setting certificate validation to false.
+For a private CA, install the CA trust on the bootstrap host instead of setting
+certificate validation to false. When using an execution environment, the CA
+must also be trusted inside the selected image or mounted into it with
+navigator configuration.
 
 ## 4. Provide the demo user password
 
@@ -74,7 +124,7 @@ User passwords are never stored in this repository. Create a Vault-encrypted sec
 ```bash
 cp config/secrets.example.yml config/secrets.yml
 vi config/secrets.yml                    # set demo_user_password
-ansible-vault encrypt config/secrets.yml
+aap_vault encrypt config/secrets.yml
 ```
 
 The same password is applied to all six demo users. Re-running the bootstrap does not rotate existing passwords (`update_secrets: false`); change passwords in the UI, or delete the users and re-run.
@@ -86,7 +136,7 @@ are still assigned; only user creation and user role assignments are skipped.
 ## 5. Run the bootstrap
 
 ```bash
-ansible-playbook bootstrap.yml \
+aap_run bootstrap.yml \
   -e demo_scm_url='https://git.example.com/automation/aap25-demo-bootstrap.git' \
   -e demo_scm_branch='main' \
   -e @config/secrets.yml --ask-vault-pass
@@ -95,7 +145,7 @@ ansible-playbook bootstrap.yml \
 Without local users, omit the secrets file and Vault prompt:
 
 ```bash
-ansible-playbook bootstrap.yml \
+aap_run bootstrap.yml \
   -e \
   demo_scm_url='https://git.example.com/automation/aap25-demo-bootstrap.git' \
   -e demo_scm_branch='main' \
@@ -109,7 +159,7 @@ Run it a second time. Configuration tasks should be idempotent; the final histor
 To reapply configuration without creating more history:
 
 ```bash
-ansible-playbook bootstrap.yml \
+aap_run bootstrap.yml \
   -e demo_scm_url='https://git.example.com/automation/aap25-demo-bootstrap.git' \
   -e @config/secrets.yml --ask-vault-pass \
   --skip-tags seed_history
@@ -118,7 +168,7 @@ ansible-playbook bootstrap.yml \
 For a no-users deployment, the equivalent rerun is:
 
 ```bash
-ansible-playbook bootstrap.yml \
+aap_run bootstrap.yml \
   -e \
   demo_scm_url='https://git.example.com/automation/aap25-demo-bootstrap.git' \
   -e demo_create_users=false \
@@ -175,13 +225,16 @@ disabling validation). Operational errors — API/transport failures,
 pagination truncation, duplicate normalized keys, missing/invalid fixtures —
 always fail the run, in every mode.
 
+The commands below use the `aap_run` function selected in section 2. Define it
+again first if you opened a new shell.
+
 ### Layer 1 - target smoke gate
 
 Run `bootstrap.yml` against the OCP target, then:
 
 ```bash
-ansible-playbook verify_smoke.yml     # asserts demo objects, sync and history
-ansible-playbook teardown.yml         # removes all demo content afterwards
+aap_run verify_smoke.yml     # asserts demo objects, sync and history
+aap_run teardown.yml         # removes all demo content afterwards
 ```
 
 This proves admin authentication, API availability, resource synchronization
@@ -201,7 +254,7 @@ export SOURCE_AAP_HOSTNAME='https://rpm-gateway.example.com'   # source gateway
 export SOURCE_AAP_USERNAME='admin'
 export SOURCE_AAP_PASSWORD='REDACTED'
 # target uses AAP_HOSTNAME / AAP_USERNAME / AAP_PASSWORD
-ansible-playbook verify_parity.yml
+aap_run verify_parity.yml
 ```
 
 Compares organizations, users, teams (gateway routes), and credentials
@@ -232,7 +285,7 @@ Curate `functional_checks` in `config/verify.yml` (job template launches,
 project syncs, notification tests), then:
 
 ```bash
-ansible-playbook verify_functional.yml
+aap_run verify_functional.yml
 ```
 
 A launched job template that uses a migrated credential is the `SECRET_KEY`

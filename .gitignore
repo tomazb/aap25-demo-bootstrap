@@ -8,6 +8,7 @@ config/verify.customer.yml
 *.retry
 .tmp/
 .ansible/
+/collections/
 
 # Verification run output
 reports/
