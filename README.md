@@ -227,7 +227,10 @@ a Markdown report to `reports/` (gitignored) and exits non-zero on failure.
 
 All verification playbooks require an HTTPS endpoint with certificate
 validation before sending credentials (install private CA trust rather than
-disabling validation). Operational errors — API/transport failures,
+disabling validation). For a throwaway lab only, `verify_smoke.yml` accepts
+`-e smoke_allow_insecure=true`, which bypasses that check and stamps an
+UNSAFE marker on the generated report; never use it against a customer or
+production endpoint. Operational errors — API/transport failures,
 pagination truncation, duplicate normalized keys, missing/invalid fixtures —
 always fail the run, in every mode.
 

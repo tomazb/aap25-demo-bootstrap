@@ -166,31 +166,45 @@ inventories, three successfully synced projects, five job templates, one
 workflow template, one enabled schedule, one notifier, one machine credential,
 and a job list containing both successful runs and one intentional failure. If
 local users were enabled, also confirm six `demo-*` users, then log in as
-`demo-alice` and confirm only Demo Linux content is visible. The full checklist
-is [README section 6](README.md#6-post-bootstrap-checks).
+`demo-alice` (Demo Linux team admin) and confirm that only the Demo Linux
+inventory, project, and templates are visible and manageable, and that the
+other two organizations' content is not. Team roles cover inventories,
+projects, and job templates; the notifier and the schedule are not part of
+those grants. The full checklist is
+[README section 6](README.md#6-post-bootstrap-checks).
 
-For a scriptable equivalent of those checks:
+For a scriptable equivalent of those checks, run **one** of the two commands
+below -- the one matching the mode the bootstrap used. Do not run both.
+
+If local users were enabled:
 
 ```bash
 aap_run verify_smoke.yml
 ```
 
-For a no-users deployment, pass the same setting to the smoke check:
+If the bootstrap used `demo_create_users=false`, run this command instead:
 
 ```bash
 aap_run verify_smoke.yml -e demo_create_users=false
 ```
 
-If the throwaway lab uses the insecure override, add the verification-specific
-override to either command above, for example:
+If the throwaway lab uses the insecure override, append
+`-e smoke_allow_insecure=true` to whichever command you selected -- again,
+only one of:
 
 ```bash
+# bootstrap ran with local users
 aap_run verify_smoke.yml -e smoke_allow_insecure=true
+
+# bootstrap ran with demo_create_users=false
+aap_run verify_smoke.yml -e demo_create_users=false -e smoke_allow_insecure=true
 ```
 
 This asserts the demo objects, project sync state, and job history, and exits
 non-zero on failure. It authenticates as the admin user throughout, so it
 proves availability and content but not RBAC.
+
+After the selected smoke check passes, remove the demo content as shown below.
 
 ## Removing the demo content
 
@@ -204,8 +218,11 @@ For a throwaway lab that used the insecure override:
 aap_run teardown.yml -e teardown_allow_insecure=true
 ```
 
-Removes every object the bootstrap created. Job history rows belonging to
-deleted templates remain in the controller; that is controller behavior.
+Removes the demo organizations and every object the bootstrap created inside
+them. Two things are left behind, both controller behavior: the
+`demo-controlled` label, which cannot be deleted through the controller API and
+is garbage-collected once nothing references it, and job history rows belonging
+to deleted templates.
 
 ## Where to go next
 
