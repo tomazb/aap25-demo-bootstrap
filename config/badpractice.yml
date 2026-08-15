@@ -1,0 +1,81 @@
+---
+# Anti-pattern demo content for badpractice.yml. Everything here lands in the
+# platform's pre-existing Default organization on purpose: the point is to
+# show what "just put it in Default" sprawl looks like, then remove it again.
+#
+# Kept separate from config/demo.yml so the clean-practice configuration never
+# mixes with the deliberately bad one. Every object is prefixed "Bad Demo" /
+# "baddemo-" so teardown.yml never sweeps these up and badpractice.yml never
+# touches the proper demo content.
+#
+# The Default organization itself is pre-existing platform state. It is never
+# created or deleted by this repository.
+
+badpractice_organization: Default
+
+# One user gets Organization Admin on Default (the classic over-permissioning
+# sprawl), the other collects direct per-object admin grants that bypass
+# teams entirely. Passwords come from the same vault-provided
+# demo_user_password as the proper demo users; no new secret path.
+badpractice_users:
+  - username: baddemo-oscar
+    first_name: Oscar
+    last_name: Sprawl
+    email: baddemo-oscar@demo.example
+    gateway_role: Organization Admin
+  - username: baddemo-peggy
+    first_name: Peggy
+    last_name: Sprawl
+    email: baddemo-peggy@demo.example
+    gateway_role: Organization Member
+
+# Direct user-level admin grants on individual controller objects, assigned to
+# baddemo-peggy after object creation. Team-less per-user grants are the
+# second half of the anti-pattern story.
+badpractice_direct_grant_user: baddemo-peggy
+
+badpractice_credentials:
+  - name: Bad Demo Machine Credential
+    credential_type: Machine
+    description: >-
+      Anti-pattern demo credential parked in the Default organization; the
+      password is a fake literal
+    inputs:
+      username: baddemo-service
+      password: baddemo-not-a-real-secret
+
+badpractice_inventories:
+  - name: Bad Demo Inventory
+    description: >-
+      Anti-pattern demo inventory parked in the Default organization; every
+      host uses a local connection
+    variables:
+      demo_environment: lab
+      demo_owner: nobody-in-particular
+
+badpractice_hosts:
+  - name: badweb01.demo
+    inventory: Bad Demo Inventory
+    description: Synthetic host dumped in the Default organization
+    variables:
+      ansible_connection: local
+      demo_role: web
+  - name: baddb01.demo
+    inventory: Bad Demo Inventory
+    description: Synthetic host dumped in the Default organization
+    variables:
+      ansible_connection: local
+      demo_role: database
+
+badpractice_projects:
+  - name: Bad Demo Content
+    description: Anti-pattern demo project parked in the Default organization
+
+badpractice_job_templates:
+  - name: Bad Demo 01 - Default org sprawl
+    inventory: Bad Demo Inventory
+    project: Bad Demo Content
+    playbook: content/playbooks/hello.yml
+    description: >-
+      Safe hello-world template parked in the Default organization to
+      demonstrate sprawl

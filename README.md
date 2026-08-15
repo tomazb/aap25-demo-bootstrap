@@ -344,7 +344,12 @@ result is claimed here.
   bootstrap never touches `Default`, and teardown scope always matches
   creation scope for that content. Keep it that way: do not attach demo
   content to `Default` and do not grant roles in it. `Default` cannot be
-  deleted, so anything placed there outlives every cleanup.
+  deleted, so anything placed there outlives every cleanup. The one deliberate,
+  documented exception is `badpractice.yml`, which seeds `Bad Demo` /
+  `baddemo-` prefixed content into `Default` precisely to demonstrate this
+  anti-pattern — and carries its own undo
+  (`-e badpractice_state=absent`); see
+  [QUICK-HOWTO.md](QUICK-HOWTO.md#optional-simulating-the-default-organization-anti-pattern).
 - Demo user accounts are the one exception to organization scoping: gateway
   users are global identities created and removed by username (organization
   access is granted separately through role assignments). If a configured

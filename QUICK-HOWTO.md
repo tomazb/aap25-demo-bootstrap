@@ -224,6 +224,31 @@ them. Two things are left behind, both controller behavior: the
 is garbage-collected once nothing references it, and job history rows belonging
 to deleted templates.
 
+## Optional: simulating the Default-organization anti-pattern
+
+`badpractice.yml` deliberately seeds "Bad Demo" / `baddemo-` prefixed content
+into the platform's pre-existing **Default** organization — an inventory,
+project, job template, machine credential (fake password), and two users, one
+with Organization Admin on Default and one with direct per-object admin
+grants that bypass teams. Use it to show what "just put it in Default" sprawl
+looks like next to the properly organized demo content.
+
+```bash
+# do
+aap_run badpractice.yml -e demo_scm_url=<url> \
+  -e @config/secrets.yml --ask-vault-pass
+
+# undo
+aap_run badpractice.yml -e badpractice_state=absent
+```
+
+Both directions are idempotent. The undo removes only the seeded content; the
+Default organization itself is never created, modified, or deleted, and the
+proper demo content from `bootstrap.yml` is never touched (nor does
+`teardown.yml` remove bad-practice content — each playbook owns its own
+objects). For a throwaway lab that used the insecure override, add
+`-e badpractice_allow_insecure=true`.
+
 ## Where to go next
 
 - [README section 7](README.md#7-migration-verification-aap-25-rpm---aap-25-on-openshift)

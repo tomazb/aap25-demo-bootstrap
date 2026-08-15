@@ -54,7 +54,7 @@ done
 } > "$CONTROLLER_DIR/meta/runtime.yml"
 
 PLAYBOOKS=("$@")
-[ "${#PLAYBOOKS[@]}" -gt 0 ] || PLAYBOOKS=(bootstrap.yml teardown.yml verify_smoke.yml verify_parity.yml verify_functional.yml verify_rbac.yml)
+[ "${#PLAYBOOKS[@]}" -gt 0 ] || PLAYBOOKS=(bootstrap.yml teardown.yml badpractice.yml verify_smoke.yml verify_parity.yml verify_functional.yml verify_rbac.yml)
 for pb in "${PLAYBOOKS[@]}"; do
   ANSIBLE_COLLECTIONS_PATH=.tmp/collections ansible-playbook --syntax-check "$pb" >/dev/null
 done
