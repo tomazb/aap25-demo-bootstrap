@@ -17,17 +17,56 @@ This repository populates a fresh Ansible Automation Platform 2.5 installation w
 
 No task contacts a real managed host. Every synthetic host uses `ansible_connection: local`, and the content is limited to `debug`, `assert`, `set_stats`, and an intentional `fail` task.
 
+In a hurry? [QUICK-HOWTO.md](QUICK-HOWTO.md) is a one-page copy-pasteable deployment path; the sections below explain each step and cover migration verification.
+
 ## 1. Publish this repository
 
 Push the complete directory to a Git repository that the AAP controller can reach. The controller project uses this same repository as its SCM source.
 
-## 2. Install AAP-matched certified collections
+## 2. Select a runtime and install AAP-matched certified collections
 
 Use the collection versions provided by your AAP 2.5 private automation hub whenever possible.
+
+For the host-native Python path, install the collections and define the command
+used by the remaining sections:
 
 ```bash
 ansible-galaxy collection install -r requirements.yml
 ansible-galaxy collection list | grep -E 'ansible\.(platform|controller)'
+aap_run() { ansible-playbook "$@"; }
+aap_vault() { ansible-vault "$@"; }
+```
+
+For the execution-environment path, select a pullable AAP 2.5 image and install
+the collections into the playbook-adjacent `collections/` directory. Navigator
+automatically mounts the project directory, and Ansible discovers collections
+at that location. The directory is gitignored.
+
+```bash
+export AAP_EE_IMAGE='<pullable-AAP-2.5-EE-image>'
+ansible-navigator exec --eei "$AAP_EE_IMAGE" -- \
+  ansible-galaxy collection install -r requirements.yml -p ./collections
+ansible-navigator exec --eei "$AAP_EE_IMAGE" -- \
+  ansible-galaxy collection list -p ./collections
+
+aap_run() {
+  local playbook=$1 name
+  local -a pass_env=()
+  shift
+  for name in \
+    AAP_HOSTNAME AAP_USERNAME AAP_PASSWORD AAP_VALIDATE_CERTS \
+    SOURCE_AAP_HOSTNAME SOURCE_AAP_USERNAME SOURCE_AAP_PASSWORD \
+    SOURCE_AAP_VALIDATE_CERTS RBAC_DEMO_PASSWORD
+  do
+    [[ -v $name ]] && pass_env+=(--penv "$name")
+  done
+  ansible-navigator run "$playbook" --mode stdout --enable-prompts \
+    --eei "$AAP_EE_IMAGE" "${pass_env[@]}" -- "$@"
+}
+aap_vault() {
+  ansible-navigator exec --exshell false --eei "$AAP_EE_IMAGE" -- \
+    ansible-vault "$@"
+}
 ```
 
 Expected version families are `ansible.platform 2.5.x` and `ansible.controller 4.6.x`. Do not silently install 2.6/2.7 collection families against AAP 2.5.
@@ -41,9 +80,19 @@ the control node. Stock RHEL 8 `python3` is 3.6, which cannot run it. Either:
 
 - install a newer application stream and use it for ansible-core and the
   collections: `sudo dnf install python3.12` then
-  `python3.12 -m pip install --user ansible-core`, or
-- run the playbooks from an AAP execution environment with
-  `ansible-navigator`, which needs no Python on the host beyond the runner.
+  `python3.12 -m pip install --user ansible-core==2.16.14`, or
+- install `ansible-navigator` on a supported host Python and run the playbooks
+  from an AAP execution environment. This route also requires Podman or Docker,
+  registry authentication, and a pullable AAP 2.5 image. The navigator setup
+  in section 2 supplies the required collections, passes the AAP environment
+  variables into the container, and enables Vault prompts.
+
+Define `aap_run` and `aap_vault` again after opening a new shell. For native
+runs they invoke `ansible-playbook` and `ansible-vault`; for
+execution-environment runs they invoke
+`ansible-navigator run <playbook> --mode stdout` while preserving all `-e`,
+`--ask-vault-pass`, and `--skip-tags` arguments shown below, and execute
+`ansible-vault` inside the same image.
 
 ## 3. Export bootstrap authentication
 
@@ -63,7 +112,10 @@ lab only, override with `-e bootstrap_allow_insecure=true` /
 
 The playbook feeds these values to the `ansible.controller` modules through `module_defaults`, so `CONTROLLER_*` environment variables are not needed. Most `ansible.controller` 4.6.x builds only read `CONTROLLER_*` variables, not `AAP_*`, which is why the playbook passes the values explicitly instead of relying on the environment.
 
-For a private CA, install the CA trust on the bootstrap host instead of setting certificate validation to false.
+For a private CA, install the CA trust on the bootstrap host instead of setting
+certificate validation to false. When using an execution environment, the CA
+must also be trusted inside the selected image or mounted into it with
+navigator configuration.
 
 ## 4. Provide the demo user password
 
@@ -72,20 +124,36 @@ User passwords are never stored in this repository. Create a Vault-encrypted sec
 ```bash
 cp config/secrets.example.yml config/secrets.yml
 vi config/secrets.yml                    # set demo_user_password
-ansible-vault encrypt config/secrets.yml
+aap_vault encrypt config/secrets.yml
 ```
 
 The same password is applied to all six demo users. Re-running the bootstrap does not rotate existing passwords (`update_secrets: false`); change passwords in the UI, or delete the users and re-run.
 
-To bootstrap without local users (for example when teams map to an external IdP), skip this section and pass `-e demo_create_users=false`. Team content roles are still assigned; only user creation and user role assignments are skipped.
+To bootstrap without local users (for example when teams map to an external
+IdP), skip this section and use the no-users command below. Team content roles
+are still assigned; only user creation and user role assignments are skipped.
 
 ## 5. Run the bootstrap
 
+Replace `<commit-sha-or-immutable-tag>` with a fixed ref that contains this
+bootstrap content. Use that exact ref again for configuration-only reruns so a
+moving branch tip cannot change the content being converged.
+
 ```bash
-ansible-playbook bootstrap.yml \
+aap_run bootstrap.yml \
   -e demo_scm_url='https://git.example.com/automation/aap25-demo-bootstrap.git' \
-  -e demo_scm_branch='main' \
+  -e demo_scm_branch='<commit-sha-or-immutable-tag>' \
   -e @config/secrets.yml --ask-vault-pass
+```
+
+Without local users, omit the secrets file and Vault prompt:
+
+```bash
+aap_run bootstrap.yml \
+  -e \
+  demo_scm_url='https://git.example.com/automation/aap25-demo-bootstrap.git' \
+  -e demo_scm_branch='<commit-sha-or-immutable-tag>' \
+  -e demo_create_users=false
 ```
 
 On a fresh instance the task `Wait for gateway organizations to propagate to the controller` can pause for up to 15 minutes: the controller learns about gateway-created organizations through a periodic resource sync with a 15-minute default interval. This is expected; the bootstrap continues as soon as all three organizations are visible on the controller side.
@@ -95,34 +163,58 @@ Run it a second time. Configuration tasks should be idempotent; the final histor
 To reapply configuration without creating more history:
 
 ```bash
-ansible-playbook bootstrap.yml \
+aap_run bootstrap.yml \
   -e demo_scm_url='https://git.example.com/automation/aap25-demo-bootstrap.git' \
+  -e demo_scm_branch='<commit-sha-or-immutable-tag>' \
   -e @config/secrets.yml --ask-vault-pass \
   --skip-tags seed_history
 ```
 
-The history task is tagged `seed_history`; omit that tag when you want configuration convergence without generating new job records.
+For a no-users deployment, the equivalent rerun is:
+
+```bash
+aap_run bootstrap.yml \
+  -e \
+  demo_scm_url='https://git.example.com/automation/aap25-demo-bootstrap.git' \
+  -e demo_scm_branch='<commit-sha-or-immutable-tag>' \
+  -e demo_create_users=false \
+  --skip-tags seed_history
+```
+
+The history task is tagged `seed_history`; use `--skip-tags seed_history` when
+you want configuration convergence without generating new job records.
 
 ## 6. Post-bootstrap checks
 
-Verify in the unified UI:
+In every mode, verify in the unified UI:
 
-1. Access Management -> Organizations: `Demo Linux`, `Demo Network`, `Demo Platform`.
-2. Access Management -> Users: `demo-alice`, `demo-bob`, `demo-carol`, `demo-dave`, `demo-erin`, `demo-frank`.
-3. Access Management -> Teams: three teams, each with one `Team Admin` and one `Team Member` user, and roles on their organization's content.
-4. Automation Execution -> Infrastructure -> Inventories: three demo inventories.
-5. Automation Execution -> Projects: three successful SCM project syncs.
-6. Automation Execution -> Templates: five demo job templates.
-7. Jobs: successful runs plus one intentional failed run.
-8. Automation Execution -> Templates: the `Demo WF - Linux hello then report`
+1. Access Management -> Organizations: `Demo Linux`, `Demo Network`, and
+   `Demo Platform`.
+2. Access Management -> Teams: three teams, each with roles on its
+   organization's content.
+3. Automation Execution -> Infrastructure -> Inventories: three demo
+   inventories.
+4. Automation Execution -> Projects: three successful SCM project syncs.
+5. Automation Execution -> Templates: five demo job templates.
+6. Jobs: successful runs plus one intentional failed run.
+7. Automation Execution -> Templates: the `Demo WF - Linux hello then report`
    workflow template.
-9. Automation Execution -> Schedules: `Demo Weekly Hello`, enabled, with a
+8. Automation Execution -> Schedules: `Demo Weekly Hello`, enabled, with a
    populated next run.
-10. Automation Execution -> Administration -> Notifiers: `Demo Webhook
-    Notifier`.
-11. Automation Execution -> Infrastructure -> Credentials: `Demo Platform
+9. Automation Execution -> Administration -> Notifiers: `Demo Webhook
+   Notifier`.
+10. Automation Execution -> Infrastructure -> Credentials: `Demo Platform
     Machine Credential`.
-12. Log in as `demo-alice` (Demo Linux team admin): only the Demo Linux inventory, project, and templates are visible and manageable; the other two organizations' content is not.
+
+When `demo_create_users=true`, also verify:
+
+1. Access Management -> Users: `demo-alice`, `demo-bob`, `demo-carol`,
+   `demo-dave`, `demo-erin`, and `demo-frank`.
+2. Access Management -> Teams: each team has one `Team Admin` and one
+   `Team Member` user.
+3. Log in as `demo-alice` (Demo Linux team admin): only the Demo Linux
+   inventory, project, and templates are visible and manageable; the other
+   two organizations' content is not.
 
 ## 7. Migration verification (AAP 2.5 RPM -> AAP 2.5 on OpenShift)
 
@@ -135,17 +227,35 @@ a Markdown report to `reports/` (gitignored) and exits non-zero on failure.
 
 All verification playbooks require an HTTPS endpoint with certificate
 validation before sending credentials (install private CA trust rather than
-disabling validation). Operational errors — API/transport failures,
+disabling validation). For a throwaway lab only, `verify_smoke.yml` accepts
+`-e smoke_allow_insecure=true`, which bypasses that check and stamps an
+UNSAFE marker on the generated report; never use it against a customer or
+production endpoint. Operational errors — API/transport failures,
 pagination truncation, duplicate normalized keys, missing/invalid fixtures —
 always fail the run, in every mode.
 
+The commands below use the `aap_run` function selected in section 2. Define it
+again first if you opened a new shell.
+
 ### Layer 1 - target smoke gate
 
-Run `bootstrap.yml` against the OCP target, then:
+Run `bootstrap.yml` against the OCP target. If local users were enabled, run:
 
 ```bash
-ansible-playbook verify_smoke.yml     # asserts demo objects, sync and history
-ansible-playbook teardown.yml         # removes all demo content afterwards
+aap_run verify_smoke.yml     # asserts demo objects, sync, users, and history
+```
+
+If bootstrap used `demo_create_users=false`, run this command instead (do not
+run both smoke commands):
+
+```bash
+aap_run verify_smoke.yml -e demo_create_users=false
+```
+
+After the selected smoke check passes, remove all demo content:
+
+```bash
+aap_run teardown.yml
 ```
 
 This proves admin authentication, API availability, resource synchronization
@@ -165,7 +275,7 @@ export SOURCE_AAP_HOSTNAME='https://rpm-gateway.example.com'   # source gateway
 export SOURCE_AAP_USERNAME='admin'
 export SOURCE_AAP_PASSWORD='REDACTED'
 # target uses AAP_HOSTNAME / AAP_USERNAME / AAP_PASSWORD
-ansible-playbook verify_parity.yml
+aap_run verify_parity.yml
 ```
 
 Compares organizations, users, teams (gateway routes), and credentials
@@ -196,7 +306,7 @@ Curate `functional_checks` in `config/verify.yml` (job template launches,
 project syncs, notification tests), then:
 
 ```bash
-ansible-playbook verify_functional.yml
+aap_run verify_functional.yml
 ```
 
 A launched job template that uses a migrated credential is the `SECRET_KEY`
