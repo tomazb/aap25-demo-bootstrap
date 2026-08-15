@@ -183,6 +183,11 @@
 
         # Direct per-user object grants that bypass teams entirely: the
         # second half of the anti-pattern next to Organization Admin sprawl.
+        #
+        # A just-created object can be transiently invisible to the RBAC
+        # assignment validation ("Invalid pk ... - object does not exist"
+        # observed live for a project created seconds earlier in this play),
+        # so every grant retries until the object becomes assignable.
         - name: Grant direct user-level admin on bad-practice inventories
           ansible.controller.role_user_assignment:
             role_definition: Inventory Admin
@@ -192,6 +197,10 @@
           loop: "{{ badpractice_inventory_creation.results }}"
           loop_control:
             label: "{{ badpractice_direct_grant_user }} -> {{ item.item.name }}"
+          register: badpractice_inventory_grant
+          until: badpractice_inventory_grant is success
+          retries: 12
+          delay: 5
 
         - name: Grant direct user-level admin on bad-practice projects
           ansible.controller.role_user_assignment:
@@ -202,6 +211,10 @@
           loop: "{{ badpractice_project_creation.results }}"
           loop_control:
             label: "{{ badpractice_direct_grant_user }} -> {{ item.item.name }}"
+          register: badpractice_project_grant
+          until: badpractice_project_grant is success
+          retries: 12
+          delay: 5
 
         - name: Grant direct user-level admin on bad-practice job templates
           ansible.controller.role_user_assignment:
@@ -212,6 +225,10 @@
           loop: "{{ badpractice_job_template_creation.results }}"
           loop_control:
             label: "{{ badpractice_direct_grant_user }} -> {{ item.item.name }}"
+          register: badpractice_job_template_grant
+          until: badpractice_job_template_grant is success
+          retries: 12
+          delay: 5
 
     - name: Remove the Default-organization anti-pattern content
       when: badpractice_state == 'absent'
