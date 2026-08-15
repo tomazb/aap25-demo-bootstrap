@@ -338,6 +338,19 @@ result is claimed here.
 ## Security and lifecycle notes
 
 - Do not insert demo records directly into PostgreSQL.
+- Leave the built-in `Default` organization alone. Every organization-scoped
+  resource this repository creates lives in the three named demo organizations
+  from `config/demo.yml`, and `teardown.yml` removes exactly that set — so the
+  bootstrap never touches `Default`, and teardown scope always matches
+  creation scope for that content. Keep it that way: do not attach demo
+  content to `Default` and do not grant roles in it. `Default` cannot be
+  deleted, so anything placed there outlives every cleanup.
+- Demo user accounts are the one exception to organization scoping: gateway
+  users are global identities created and removed by username (organization
+  access is granted separately through role assignments). If a configured
+  username already exists on the gateway, the bootstrap updates that account
+  and the teardown deletes it — keep the `demo-` username prefix from
+  `config/demo.yml` to avoid colliding with real accounts.
 - Do not copy project content into controller container filesystems.
 - Keep demo objects prefixed with `Demo` so they can be identified and removed.
 - Keep real secrets out of this repository. Add real credentials only through an approved secret-management workflow.
