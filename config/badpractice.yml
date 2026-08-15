@@ -31,8 +31,22 @@ badpractice_users:
 
 # Direct user-level admin grants on individual controller objects, assigned to
 # baddemo-peggy after object creation. Team-less per-user grants are the
-# second half of the anti-pattern story.
+# second half of the anti-pattern story. Object ids are resolved from the API
+# by name at grant time (registered creation results are not a safe id
+# source: the project module's forced-update path reports the update job's
+# id, not the project's).
 badpractice_direct_grant_user: baddemo-peggy
+
+badpractice_direct_grants:
+  - role_definition: Inventory Admin
+    endpoint: inventories
+    name: Bad Demo Inventory
+  - role_definition: Project Admin
+    endpoint: projects
+    name: Bad Demo Content
+  - role_definition: JobTemplate Admin
+    endpoint: job_templates
+    name: Bad Demo 01 - Default org sprawl
 
 badpractice_credentials:
   - name: Bad Demo Machine Credential

@@ -132,7 +132,6 @@
           loop: "{{ badpractice_inventories }}"
           loop_control:
             label: "{{ badpractice_organization }} / {{ item.name }}"
-          register: badpractice_inventory_creation
 
         - name: Create bad-practice synthetic hosts
           ansible.controller.host:
@@ -163,7 +162,6 @@
           loop: "{{ badpractice_projects }}"
           loop_control:
             label: "{{ badpractice_organization }} / {{ item.name }}"
-          register: badpractice_project_creation
 
         - name: Create bad-practice job templates in the Default organization
           ansible.controller.job_template:
@@ -179,56 +177,46 @@
           loop: "{{ badpractice_job_templates }}"
           loop_control:
             label: "{{ badpractice_organization }} / {{ item.name }}"
-          register: badpractice_job_template_creation
 
         # Direct per-user object grants that bypass teams entirely: the
         # second half of the anti-pattern next to Organization Admin sprawl.
         #
-        # A just-created object can be transiently invisible to the RBAC
-        # assignment validation ("Invalid pk ... - object does not exist"
-        # observed live for a project created seconds earlier in this play),
-        # so every grant retries until the object becomes assignable.
-        - name: Grant direct user-level admin on bad-practice inventories
-          ansible.controller.role_user_assignment:
-            role_definition: Inventory Admin
-            user: "{{ badpractice_direct_grant_user }}"
-            object_id: "{{ item.id }}"
-            state: present
-          loop: "{{ badpractice_inventory_creation.results }}"
-          loop_control:
-            label: "{{ badpractice_direct_grant_user }} -> {{ item.item.name }}"
-          register: badpractice_inventory_grant
-          until: badpractice_inventory_grant is success
+        # Object ids are resolved from the API by name rather than taken from
+        # the registered creation results: with update_project enabled the
+        # project module reports the project *update job's* id, not the
+        # project's, and granting against that id fails with
+        # 'Invalid pk ... - object does not exist' (observed live).
+        - name: Resolve controller object ids for direct user grants
+          ansible.builtin.uri:
+            url: >-
+              {{ aap_bootstrap_hostname | regex_replace('/+$', '')
+              }}/api/controller/v2/{{ item.endpoint }}/?name={{ item.name | urlencode
+              }}&organization__name={{ badpractice_organization | urlencode }}
+            method: GET
+            user: "{{ aap_bootstrap_username }}"
+            password: "{{ aap_bootstrap_password }}"
+            force_basic_auth: true
+            validate_certs: "{{ aap_bootstrap_validate_certs }}"
+            return_content: true
+          register: badpractice_grant_lookup
+          until:
+            - badpractice_grant_lookup.json is defined
+            - badpractice_grant_lookup.json.count | int == 1
           retries: 12
           delay: 5
+          loop: "{{ badpractice_direct_grants }}"
+          loop_control:
+            label: "{{ item.endpoint }} / {{ item.name }}"
 
-        - name: Grant direct user-level admin on bad-practice projects
+        - name: Grant direct user-level admin on bad-practice content
           ansible.controller.role_user_assignment:
-            role_definition: Project Admin
+            role_definition: "{{ item.item.role_definition }}"
             user: "{{ badpractice_direct_grant_user }}"
-            object_id: "{{ item.id }}"
+            object_id: "{{ item.json.results[0].id }}"
             state: present
-          loop: "{{ badpractice_project_creation.results }}"
+          loop: "{{ badpractice_grant_lookup.results }}"
           loop_control:
-            label: "{{ badpractice_direct_grant_user }} -> {{ item.item.name }}"
-          register: badpractice_project_grant
-          until: badpractice_project_grant is success
-          retries: 12
-          delay: 5
-
-        - name: Grant direct user-level admin on bad-practice job templates
-          ansible.controller.role_user_assignment:
-            role_definition: JobTemplate Admin
-            user: "{{ badpractice_direct_grant_user }}"
-            object_id: "{{ item.id }}"
-            state: present
-          loop: "{{ badpractice_job_template_creation.results }}"
-          loop_control:
-            label: "{{ badpractice_direct_grant_user }} -> {{ item.item.name }}"
-          register: badpractice_job_template_grant
-          until: badpractice_job_template_grant is success
-          retries: 12
-          delay: 5
+            label: "{{ badpractice_direct_grant_user }} -> {{ item.item.name }} ({{ item.item.role_definition }})"
 
     - name: Remove the Default-organization anti-pattern content
       when: badpractice_state == 'absent'
