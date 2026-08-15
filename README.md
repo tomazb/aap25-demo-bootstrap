@@ -338,6 +338,13 @@ result is claimed here.
 ## Security and lifecycle notes
 
 - Do not insert demo records directly into PostgreSQL.
+- Leave the built-in `Default` organization alone. Every resource this
+  repository creates is scoped to the three named demo organizations from
+  `config/demo.yml`, and `teardown.yml` removes exactly that set — so the
+  bootstrap never touches `Default`, and teardown scope always matches
+  creation scope. Keep it that way: do not attach demo content to `Default`
+  and do not grant roles in it. `Default` cannot be deleted, so anything
+  placed there outlives every cleanup.
 - Do not copy project content into controller container filesystems.
 - Keep demo objects prefixed with `Demo` so they can be identified and removed.
 - Keep real secrets out of this repository. Add real credentials only through an approved secret-management workflow.
