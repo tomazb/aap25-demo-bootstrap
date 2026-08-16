@@ -214,7 +214,6 @@
       loop: "{{ demo_projects }}"
       loop_control:
         label: "{{ item.organization }} / {{ item.name }}"
-      register: demo_project_creation
 
     - name: Create demo job templates
       ansible.controller.job_template:
@@ -371,13 +370,44 @@
       tags:
         - rbac
 
+    # Project ids are resolved from the API by name rather than taken from a
+    # registered creation result: with update_project enabled the project
+    # module reports the project *update job's* id, not the project's, and
+    # granting against that id fails with 'Invalid pk ... - object does not
+    # exist' (observed live; see badpractice.yml for the same pattern). The
+    # inventory and job template modules have no such path, so their
+    # registered results above remain safe id sources.
+    - name: Resolve controller project ids for team RBAC grants
+      ansible.builtin.uri:
+        url: >-
+          {{ aap_bootstrap_hostname | regex_replace('/+$', '')
+          }}/api/controller/v2/projects/?name={{ item.name | urlencode
+          }}&organization__name={{ item.organization | urlencode }}
+        method: GET
+        user: "{{ aap_bootstrap_username }}"
+        password: "{{ aap_bootstrap_password }}"
+        force_basic_auth: true
+        validate_certs: "{{ aap_bootstrap_validate_certs }}"
+        return_content: true
+      register: demo_project_lookup
+      until:
+        - demo_project_lookup.json is defined
+        - demo_project_lookup.json.count | int == 1
+      retries: 12
+      delay: 5
+      loop: "{{ demo_projects }}"
+      loop_control:
+        label: "{{ item.organization }} / {{ item.name }}"
+      tags:
+        - rbac
+
     - name: Grant teams admin rights on their organization projects
       ansible.controller.role_team_assignment:
         role_definition: Project Admin
         team: "{{ demo_team_by_org[item.item.organization] }}"
-        object_id: "{{ item.id }}"
+        object_id: "{{ item.json.results[0].id }}"
         state: present
-      loop: "{{ demo_project_creation.results }}"
+      loop: "{{ demo_project_lookup.results }}"
       loop_control:
         label: "{{ item.item.organization }} / {{ item.item.name }}"
       tags:
