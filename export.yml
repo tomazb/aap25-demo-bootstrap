@@ -1,5 +1,5 @@
 ---
-- name: Export AAP objects for migration
+- name: Export AAP 2.5 controller objects
   hosts: localhost
   connection: local
   gather_facts: false
@@ -11,7 +11,9 @@
     aap_password: "{{ lookup('ansible.builtin.env', 'AAP_PASSWORD') }}"
     aap_validate_certs: >-
       {{ (lookup('ansible.builtin.env', 'AAP_VALIDATE_CERTS') or 'true') | bool }}
+    export_dir: "{{ lookup('ansible.builtin.env', 'EXPORT_DIR') or 'reports' }}"
     export_allow_insecure: false
+    export_no_log: true
 
   module_defaults:
     group/ansible.controller.controller:
@@ -21,13 +23,16 @@
       validate_certs: "{{ aap_validate_certs }}"
 
   pre_tasks:
-    - name: Validate required credentials
+    - name: Validate required export inputs
       ansible.builtin.assert:
         that:
           - aap_hostname | length > 0
           - aap_username | length > 0
           - aap_password | length > 0
-        fail_msg: Export AAP_HOSTNAME, AAP_USERNAME and AAP_PASSWORD first.
+          - export_dir | length > 0
+        fail_msg: >-
+          Export AAP_HOSTNAME, AAP_USERNAME and AAP_PASSWORD. Optionally set
+          EXPORT_DIR; it defaults to reports.
 
     - name: Require secure transport before sending credentials
       ansible.builtin.assert:
@@ -42,44 +47,136 @@
       when: not (export_allow_insecure | bool)
 
   tasks:
-    - name: Discover AAP version
+    - name: Discover the source controller version through Platform Gateway
       ansible.builtin.uri:
-        url: "{{ aap_hostname }}/api/v2/config/"
+        url: "{{ aap_hostname }}/api/controller/v2/config/"
         url_username: "{{ aap_username }}"
         url_password: "{{ aap_password }}"
         force_basic_auth: true
         validate_certs: "{{ aap_validate_certs }}"
         return_content: true
+        status_code: 200
+        timeout: 30
       register: aap_config
-      failed_when: false
+      changed_when: false
+      no_log: "{{ export_no_log | bool }}"
 
-    - name: Extract AAP version information
+    - name: Require an AAP 2.5 controller
+      ansible.builtin.assert:
+        that:
+          - aap_config.json is mapping
+          - aap_config.json.version is defined
+          - aap_config.json.version is match('^4\.6\.')
+        fail_msg: >-
+          The endpoint did not report an AAP 2.5 controller version in the
+          4.6.x family. This playbook intentionally does not support AAP 2.6.
+
+    - name: Fix export metadata and paths for this run
       ansible.builtin.set_fact:
-        aap_version: >-
-          {{ aap_config.json.version | default('unknown') }}
+        aap_version: "{{ aap_config.json.version }}"
         aap_version_safe: >-
-          {{ (aap_config.json.version | default('unknown') | regex_replace('[^0-9.]', '_')) }}
-    - name: Export all AAP objects
+          {{ aap_config.json.version | regex_replace('[^0-9.]', '_') }}
+        export_timestamp: "{{ now(utc=true, fmt='%Y%m%dT%H%M%SZ') }}"
+
+    - name: Build stable export artifact paths
+      ansible.builtin.set_fact:
+        export_file: >-
+          {{ export_dir }}/controller-assets-{{ aap_version_safe }}-{{ export_timestamp }}.yml
+        export_checksum_file: >-
+          {{ export_dir }}/controller-assets-{{ aap_version_safe }}-{{ export_timestamp }}.yml.sha256
+
+    - name: Create the protected export directory
+      ansible.builtin.file:
+        path: "{{ export_dir }}"
+        state: directory
+        mode: "0700"
+
+    - name: Export all object types supported by the installed collection
       ansible.controller.export:
         all: true
+      environment:
+        CONTROLLER_OPTIONAL_API_URLPATTERN_PREFIX: /api/controller/
       register: export_output
+      no_log: "{{ export_no_log | bool }}"
 
-    - name: Ensure reports directory exists
-      ansible.builtin.file:
-        path: reports
-        state: directory
-        mode: "0755"
+    - name: Validate the exporter result contract
+      ansible.builtin.assert:
+        that:
+          - export_output.assets is defined
+          - export_output.assets is mapping
+          - export_output.assets | length > 0
+        fail_msg: >-
+          ansible.controller.export did not return a non-empty assets mapping.
+          Confirm that the installed certified collection is in the supported
+          AAP 2.5 ansible.controller 4.6.x line.
+      no_log: "{{ export_no_log | bool }}"
 
-    - name: Save export to file
+    - name: Validate each exported resource section
+      ansible.builtin.assert:
+        that:
+          - item.key is string
+          - item.value is sequence
+          - item.value is not string
+        fail_msg: >-
+          The exporter returned a malformed resource section instead of a list.
+      loop: "{{ export_output.assets | dict2items }}"
+      loop_control:
+        label: "{{ item.key }}"
+      no_log: "{{ export_no_log | bool }}"
+
+    - name: Calculate export resource counts
+      ansible.builtin.set_fact:
+        export_resource_type_count: "{{ export_output.assets | length }}"
+        export_object_count: >-
+          {{ export_output.assets | dict2items | map(attribute='value') | map('length') | sum }}
+      no_log: "{{ export_no_log | bool }}"
+
+    - name: Refuse an unexpectedly empty export
+      ansible.builtin.assert:
+        that:
+          - export_object_count | int > 0
+        fail_msg: >-
+          The exporter returned resource sections but no objects. Refusing to
+          create an artifact that could be mistaken for a complete export.
+
+    - name: Write the canonical assets mapping
       ansible.builtin.copy:
-        content: "{{ export_output | to_nice_yaml(explicit_start=true, explicit_end=true) }}"
-        dest: "reports/export-aap-{{ aap_version_safe }}-{{ lookup('ansible.builtin.pipe', 'date -u +%Y%m%dT%H%M%SZ') }}.yml"
-        mode: "0644"
+        content: >-
+          {{ export_output.assets | to_nice_yaml(indent=2, width=160, explicit_start=true, explicit_end=true) }}
+        dest: "{{ export_file }}"
+        mode: "0600"
+      diff: false
+      no_log: "{{ export_no_log | bool }}"
 
-    - name: Display export completion message
+    - name: Calculate the export artifact checksum
+      ansible.builtin.stat:
+        path: "{{ export_file }}"
+        checksum_algorithm: sha256
+      register: export_file_stat
+
+    - name: Validate the calculated export checksum
+      ansible.builtin.assert:
+        that:
+          - export_file_stat.stat.exists | default(false)
+          - export_file_stat.stat.isreg | default(false)
+          - export_file_stat.stat.checksum is defined
+          - export_file_stat.stat.checksum is match('^[0-9a-f]{64}$')
+        fail_msg: Failed to create or checksum the controller export artifact.
+
+    - name: Write the export checksum sidecar
+      ansible.builtin.copy:
+        content: "{{ export_file_stat.stat.checksum }}  {{ export_file | basename }}\n"
+        dest: "{{ export_checksum_file }}"
+        mode: "0600"
+      diff: false
+
+    - name: Report export evidence
       ansible.builtin.debug:
-        msg: |
-          Export completed successfully.
-          AAP version: {{ aap_version }}
-          Objects exported: {{ export_output.export.keys() | length }}
-          Output saved to: reports/export-aap-{{ aap_version_safe }}-{{ lookup('ansible.builtin.pipe', 'date -u +%Y%m%dT%H%M%SZ') }}.yml
+        msg:
+          result: EXPORT_COMPLETE
+          aap_controller_version: "{{ aap_version }}"
+          resource_types: "{{ export_resource_type_count | int }}"
+          objects: "{{ export_object_count | int }}"
+          export_file: "{{ export_file }}"
+          checksum_file: "{{ export_checksum_file }}"
+          sha256: "{{ export_file_stat.stat.checksum }}"
