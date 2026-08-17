@@ -27,7 +27,7 @@ post-restore reconciliation.
 
 ```bash
 ansible-galaxy collection install -r requirements.yml
-ansible-galaxy collection list ansible.controller ansible.platform
+ansible-galaxy collection list | grep -E 'ansible\.(controller|platform)'
 ansible-doc ansible.controller.export
 ansible-doc ansible.controller.import
 ```
