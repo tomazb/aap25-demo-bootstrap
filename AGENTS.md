@@ -20,12 +20,20 @@ managed host.
 - `content/playbooks/` — playbooks synced into the controller projects via SCM.
 - `requirements.yml` — pins `ansible.platform` 2.5.x (floor 2.5.20250702,
   first build with `object_ids` name lookup on `role_user_assignment`) and
-  `ansible.controller` 4.6.x. Do not bump to 2.6/2.7 families against AAP 2.5.
+  `ansible.controller >=4.6.20,<4.7.0` (AAP 2.5 Platform Gateway-compatible
+  export/import floor). Do not bump to 2.6/2.7 families against AAP 2.5.
 - `teardown.yml` — removes everything bootstrap.yml created (reverse order).
 - `verify_smoke.yml` / `verify_parity.yml` / `verify_functional.yml` —
   three-layer migration verification (see README section 7); config in
   `config/verify.yml`, shared pagination in `tasks/`, diff logic in
   `filter_plugins/parity.py` (pytest-covered in `tests/`).
+- `export.yml` / `import.yml` — supplemental Automation Controller object
+  transfer. The on-disk YAML is exactly the export module's `assets` mapping,
+  protected by a SHA-256 sidecar; import requires explicit confirmation and
+  consumes that mapping directly. These playbooks do not replace the supported
+  component database/secrets migration and do not preserve full history.
+- `docs/controller-object-transfer.md` — operator procedure and safety boundary
+  for the supplemental export/import workflow.
 
 ## Conventions
 - Keep every demo object prefixed with `Demo` so it can be identified and removed.
@@ -45,6 +53,13 @@ managed host.
   `module_defaults: group/ansible.controller.controller` because most 4.6.x
   builds only read `CONTROLLER_*` env vars. Keep new controller tasks inside
   that group's coverage (all standard modules are).
+- Controller object export/import uses the Platform Gateway root in
+  `AAP_HOSTNAME`, probes `/api/controller/v2/config/`, requires controller
+  `4.6.x`, and sets
+  `CONTROLLER_OPTIONAL_API_URLPATTERN_PREFIX=/api/controller/` explicitly on
+  the AWXKit-backed modules. Exported payloads stay mode `0600` under a mode
+  `0700` directory; import fails closed on missing/malformed payloads,
+  checksum mismatch, or absent `-e import_confirm=true`.
 - `bootstrap.yml` and `teardown.yml` assert HTTPS + certificate validation
   before sending the admin credential (lab-only `bootstrap_allow_insecure` /
   `teardown_allow_insecure` overrides, default false). Do not weaken this.
@@ -77,11 +92,15 @@ managed host.
   host.
 - Offline test entry points (also run in `.github/workflows/ci.yml`):
   `python3 -m pytest tests/`, `bash -n tests/*.sh`, `tests/syntax_check.sh`,
-  `tests/pagination_offline.sh`, `tests/parity_offline.sh`,
-  `tests/smoke_offline.sh`, `tests/functional_offline.sh`,
-  `tests/customer_functional_offline.sh`, `tests/rbac_offline.sh`. All are
-  offline and need no AAP, Galaxy, or secrets. `tests/stubs/` holds local stub
-  `ansible.controller` modules used only by the customer-functional test.
+  `tests/export_import_offline.sh`, `tests/pagination_offline.sh`,
+  `tests/parity_offline.sh`, `tests/smoke_offline.sh`,
+  `tests/functional_offline.sh`, `tests/customer_functional_offline.sh`,
+  `tests/rbac_offline.sh`. All are offline and need no AAP, Galaxy, or secrets.
+  `tests/stubs/` holds local stub `ansible.controller` modules used by the
+  customer-functional and controller object-transfer runtime tests;
+  `tests/aap25_config_server.py` supplies the local 4.6.x/non-4.6.x endpoint.
+  `tests/test_export_import_contract.py` pins the controller object-transfer
+  payload and safety contract.
 - Customer functional checks are opt-in and validated pre-flight
   (`tasks/functional_validate.yml` + `functional_field_specs`). `ssh_canary_job`
   is the only check that contacts a real host: it stays disabled unless
