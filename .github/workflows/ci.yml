@@ -30,7 +30,7 @@ jobs:
           pip install "ansible-core==2.16.14" "pytest==8.4.2" \
             "ansible-lint==24.12.2"
 
-      - name: Unit tests (pure-Python filters)
+      - name: Unit tests (pure-Python filters and playbook contracts)
         run: python3 -m pytest tests/ -v
 
       - name: Shell script syntax
@@ -46,8 +46,8 @@ jobs:
         run: >-
           ANSIBLE_COLLECTIONS_PATH=.tmp/collections
           ansible-lint --offline
-          bootstrap.yml teardown.yml badpractice.yml verify_smoke.yml
-          verify_parity.yml verify_functional.yml verify_rbac.yml
+          bootstrap.yml teardown.yml badpractice.yml export.yml import.yml
+          verify_smoke.yml verify_parity.yml verify_functional.yml verify_rbac.yml
           tasks/ content/
 
       - name: Pagination integration (local server)
