@@ -1,0 +1,271 @@
+---
+# Simulates the "everything in the Default organization" anti-pattern, and
+# undoes it again. One playbook, one switch:
+#
+#   do:   ansible-playbook badpractice.yml -e demo_scm_url=<url> \
+#           -e @config/secrets.yml --ask-vault-pass
+#   undo: ansible-playbook badpractice.yml -e badpractice_state=absent
+#
+# The Default organization is pre-existing platform state: this playbook only
+# adds and removes "Bad Demo" / "baddemo-" prefixed content inside it and
+# never creates, modifies, or deletes the organization itself. It also never
+# touches the proper demo content seeded by bootstrap.yml.
+- name: Simulate (or undo) the Default-organization anti-pattern
+  hosts: localhost
+  connection: local
+  gather_facts: false
+
+  vars_files:
+    - config/badpractice.yml
+
+  vars:
+    aap_bootstrap_hostname: "{{ lookup('ansible.builtin.env', 'AAP_HOSTNAME') }}"
+    aap_bootstrap_username: "{{ lookup('ansible.builtin.env', 'AAP_USERNAME') }}"
+    aap_bootstrap_password: "{{ lookup('ansible.builtin.env', 'AAP_PASSWORD') }}"
+    aap_bootstrap_validate_certs: >-
+      {{ (lookup('ansible.builtin.env', 'AAP_VALIDATE_CERTS') or 'true') | bool }}
+    # present seeds the anti-pattern content, absent removes it. Both
+    # directions are idempotent: running either twice is a no-op.
+    badpractice_state: present
+    # Lab-only escape hatch, mirroring the other playbooks. Default false;
+    # when true the HTTPS/cert requirement below is relaxed. Never use this
+    # against a real target.
+    badpractice_allow_insecure: false
+
+  module_defaults:
+    group/ansible.controller.controller:
+      controller_host: "{{ aap_bootstrap_hostname }}"
+      controller_username: "{{ aap_bootstrap_username }}"
+      controller_password: "{{ aap_bootstrap_password }}"
+      validate_certs: "{{ aap_bootstrap_validate_certs }}"
+
+  pre_tasks:
+    - name: Validate required inputs
+      ansible.builtin.assert:
+        that:
+          - lookup('ansible.builtin.env', 'AAP_HOSTNAME') | length > 0
+          - lookup('ansible.builtin.env', 'AAP_USERNAME') | length > 0
+          - lookup('ansible.builtin.env', 'AAP_PASSWORD') | length > 0
+          - badpractice_state in ['present', 'absent']
+        fail_msg: >-
+          Export AAP_HOSTNAME, AAP_USERNAME and AAP_PASSWORD first, and set
+          badpractice_state to present or absent.
+
+    - name: Require secure transport before sending admin credentials
+      ansible.builtin.assert:
+        that:
+          - aap_bootstrap_hostname is match('^https://')
+          - aap_bootstrap_validate_certs | bool
+        fail_msg: >-
+          Export an HTTPS AAP_HOSTNAME and keep certificate validation enabled
+          (install private CA trust rather than disabling it). Admin
+          credentials must not be sent over HTTP or without certificate
+          validation. Set -e badpractice_allow_insecure=true only for a
+          throwaway lab.
+      when: not (badpractice_allow_insecure | bool)
+
+    - name: Validate inputs required to seed the anti-pattern content
+      ansible.builtin.assert:
+        that:
+          - demo_scm_url is defined
+          - demo_scm_url | length > 0
+          - demo_user_password is defined
+          - demo_user_password | length > 0
+          - demo_user_password != 'CHANGEME-demo-password'
+        fail_msg: >-
+          Seeding needs the SCM URL and the vault-provided demo user password:
+          ansible-playbook badpractice.yml -e demo_scm_url=<url>
+          -e @config/secrets.yml --ask-vault-pass
+      when: badpractice_state == 'present'
+
+  tasks:
+    - name: Seed the Default-organization anti-pattern content
+      when: badpractice_state == 'present'
+      block:
+        # The Default organization ships with the platform and already exists
+        # on both gateway and controller, so unlike bootstrap.yml there is no
+        # organization creation and no propagation wait here.
+        - name: Create bad-practice users through platform gateway
+          ansible.platform.user:
+            username: "{{ item.username }}"
+            first_name: "{{ item.first_name }}"
+            last_name: "{{ item.last_name }}"
+            email: "{{ item.email }}"
+            password: "{{ demo_user_password }}"
+            update_secrets: false
+            state: present
+          loop: "{{ badpractice_users }}"
+          loop_control:
+            label: "{{ item.username }}"
+
+        - name: Grant bad-practice users broad roles on the Default organization
+          ansible.platform.role_user_assignment:
+            role_definition: "{{ item.gateway_role }}"
+            user: "{{ item.username }}"
+            object_ids:
+              - "{{ badpractice_organization }}"
+            state: present
+          loop: "{{ badpractice_users }}"
+          loop_control:
+            label: "{{ item.username }} -> {{ badpractice_organization }} ({{ item.gateway_role }})"
+
+        - name: Create bad-practice credentials in the Default organization
+          ansible.controller.credential:
+            name: "{{ item.name }}"
+            organization: "{{ badpractice_organization }}"
+            credential_type: "{{ item.credential_type }}"
+            description: "{{ item.description }}"
+            inputs: "{{ item.inputs }}"
+            update_secrets: false
+            state: present
+          loop: "{{ badpractice_credentials }}"
+          loop_control:
+            label: "{{ badpractice_organization }} / {{ item.name }}"
+
+        - name: Create bad-practice inventories in the Default organization
+          ansible.controller.inventory:
+            name: "{{ item.name }}"
+            organization: "{{ badpractice_organization }}"
+            description: "{{ item.description }}"
+            variables: "{{ item.variables }}"
+            state: present
+          loop: "{{ badpractice_inventories }}"
+          loop_control:
+            label: "{{ badpractice_organization }} / {{ item.name }}"
+
+        - name: Create bad-practice synthetic hosts
+          ansible.controller.host:
+            name: "{{ item.name }}"
+            inventory: "{{ item.inventory }}"
+            description: "{{ item.description }}"
+            variables: "{{ item.variables }}"
+            enabled: true
+            state: present
+          loop: "{{ badpractice_hosts }}"
+          loop_control:
+            label: "{{ item.inventory }} / {{ item.name }}"
+
+        - name: Create bad-practice SCM projects in the Default organization
+          ansible.controller.project:
+            name: "{{ item.name }}"
+            organization: "{{ badpractice_organization }}"
+            description: "{{ item.description }}"
+            scm_type: git
+            scm_url: "{{ demo_scm_url }}"
+            scm_branch: "{{ demo_scm_branch | default('main') }}"
+            scm_clean: true
+            scm_delete_on_update: true
+            scm_update_on_launch: true
+            wait: true
+            update_project: true
+            state: present
+          loop: "{{ badpractice_projects }}"
+          loop_control:
+            label: "{{ badpractice_organization }} / {{ item.name }}"
+
+        - name: Create bad-practice job templates in the Default organization
+          ansible.controller.job_template:
+            name: "{{ item.name }}"
+            organization: "{{ badpractice_organization }}"
+            description: "{{ item.description }}"
+            job_type: run
+            inventory: "{{ item.inventory }}"
+            project: "{{ item.project }}"
+            playbook: "{{ item.playbook }}"
+            verbosity: 0
+            state: present
+          loop: "{{ badpractice_job_templates }}"
+          loop_control:
+            label: "{{ badpractice_organization }} / {{ item.name }}"
+
+        # Direct per-user object grants that bypass teams entirely: the
+        # second half of the anti-pattern next to Organization Admin sprawl.
+        #
+        # Object ids are resolved from the API by name rather than taken from
+        # the registered creation results: with update_project enabled the
+        # project module reports the project *update job's* id, not the
+        # project's, and granting against that id fails with
+        # 'Invalid pk ... - object does not exist' (observed live).
+        - name: Resolve controller object ids for direct user grants
+          ansible.builtin.uri:
+            url: >-
+              {{ aap_bootstrap_hostname | regex_replace('/+$', '')
+              }}/api/controller/v2/{{ item.endpoint }}/?name={{ item.name | urlencode
+              }}&organization__name={{ badpractice_organization | urlencode }}
+            method: GET
+            user: "{{ aap_bootstrap_username }}"
+            password: "{{ aap_bootstrap_password }}"
+            force_basic_auth: true
+            validate_certs: "{{ aap_bootstrap_validate_certs }}"
+            return_content: true
+          register: badpractice_grant_lookup
+          until:
+            - badpractice_grant_lookup.json is defined
+            - badpractice_grant_lookup.json.count | int == 1
+          retries: 12
+          delay: 5
+          loop: "{{ badpractice_direct_grants }}"
+          loop_control:
+            label: "{{ item.endpoint }} / {{ item.name }}"
+
+        - name: Grant direct user-level admin on bad-practice content
+          ansible.controller.role_user_assignment:
+            role_definition: "{{ item.item.role_definition }}"
+            user: "{{ badpractice_direct_grant_user }}"
+            object_id: "{{ item.json.results[0].id }}"
+            state: present
+          loop: "{{ badpractice_grant_lookup.results }}"
+          loop_control:
+            label: "{{ badpractice_direct_grant_user }} -> {{ item.item.name }} ({{ item.item.role_definition }})"
+
+    - name: Remove the Default-organization anti-pattern content
+      when: badpractice_state == 'absent'
+      block:
+        # Strict reverse dependency order relative to the seeding block.
+        # Role assignments disappear with the users and objects that hold
+        # them, so they need no explicit removal. The Default organization
+        # itself is deliberately left untouched.
+        - name: Remove bad-practice job templates
+          ansible.controller.job_template:
+            name: "{{ item.name }}"
+            organization: "{{ badpractice_organization }}"
+            state: absent
+          loop: "{{ badpractice_job_templates }}"
+          loop_control:
+            label: "{{ badpractice_organization }} / {{ item.name }}"
+
+        - name: Remove bad-practice projects
+          ansible.controller.project:
+            name: "{{ item.name }}"
+            organization: "{{ badpractice_organization }}"
+            state: absent
+          loop: "{{ badpractice_projects }}"
+          loop_control:
+            label: "{{ badpractice_organization }} / {{ item.name }}"
+
+        - name: Remove bad-practice inventories (hosts are removed with them)
+          ansible.controller.inventory:
+            name: "{{ item.name }}"
+            organization: "{{ badpractice_organization }}"
+            state: absent
+          loop: "{{ badpractice_inventories }}"
+          loop_control:
+            label: "{{ badpractice_organization }} / {{ item.name }}"
+
+        - name: Remove bad-practice credentials
+          ansible.controller.credential:
+            name: "{{ item.name }}"
+            organization: "{{ badpractice_organization }}"
+            credential_type: "{{ item.credential_type }}"
+            state: absent
+          loop: "{{ badpractice_credentials }}"
+          loop_control:
+            label: "{{ badpractice_organization }} / {{ item.name }}"
+
+        - name: Remove bad-practice users
+          ansible.platform.user:
+            username: "{{ item.username }}"
+            state: absent
+          loop: "{{ badpractice_users }}"
+          loop_control:
+            label: "{{ item.username }}"

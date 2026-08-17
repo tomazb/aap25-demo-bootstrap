@@ -46,8 +46,9 @@ jobs:
         run: >-
           ANSIBLE_COLLECTIONS_PATH=.tmp/collections
           ansible-lint --offline
-          bootstrap.yml teardown.yml verify_smoke.yml verify_parity.yml
-          verify_functional.yml verify_rbac.yml tasks/ content/
+          bootstrap.yml teardown.yml badpractice.yml verify_smoke.yml
+          verify_parity.yml verify_functional.yml verify_rbac.yml
+          tasks/ content/
 
       - name: Pagination integration (local server)
         run: tests/pagination_offline.sh
