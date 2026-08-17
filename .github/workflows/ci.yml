@@ -51,7 +51,7 @@ jobs:
           tasks/ content/
 
       - name: Controller object transfer (local endpoint and stub modules)
-        run: tests/export_import_offline.sh
+        run: bash tests/export_import_offline.sh
 
       - name: Pagination integration (local server)
         run: tests/pagination_offline.sh
