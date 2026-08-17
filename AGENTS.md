@@ -32,6 +32,8 @@ managed host.
   protected by a SHA-256 sidecar; import requires explicit confirmation and
   consumes that mapping directly. These playbooks do not replace the supported
   component database/secrets migration and do not preserve full history.
+- `docs/controller-object-transfer.md` — operator procedure and safety boundary
+  for the supplemental export/import workflow.
 
 ## Conventions
 - Keep every demo object prefixed with `Demo` so it can be identified and removed.
@@ -90,11 +92,13 @@ managed host.
   host.
 - Offline test entry points (also run in `.github/workflows/ci.yml`):
   `python3 -m pytest tests/`, `bash -n tests/*.sh`, `tests/syntax_check.sh`,
-  `tests/pagination_offline.sh`, `tests/parity_offline.sh`,
-  `tests/smoke_offline.sh`, `tests/functional_offline.sh`,
-  `tests/customer_functional_offline.sh`, `tests/rbac_offline.sh`. All are
-  offline and need no AAP, Galaxy, or secrets. `tests/stubs/` holds local stub
-  `ansible.controller` modules used only by the customer-functional test.
+  `tests/export_import_offline.sh`, `tests/pagination_offline.sh`,
+  `tests/parity_offline.sh`, `tests/smoke_offline.sh`,
+  `tests/functional_offline.sh`, `tests/customer_functional_offline.sh`,
+  `tests/rbac_offline.sh`. All are offline and need no AAP, Galaxy, or secrets.
+  `tests/stubs/` holds local stub `ansible.controller` modules used by the
+  customer-functional and controller object-transfer runtime tests;
+  `tests/aap25_config_server.py` supplies the local 4.6.x/non-4.6.x endpoint.
   `tests/test_export_import_contract.py` pins the controller object-transfer
   payload and safety contract.
 - Customer functional checks are opt-in and validated pre-flight
