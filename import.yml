@@ -1,0 +1,74 @@
+---
+- name: Import AAP objects for migration
+  hosts: localhost
+  connection: local
+  gather_facts: false
+
+  vars:
+    aap_hostname: >-
+      {{ lookup('ansible.builtin.env', 'AAP_HOSTNAME') | regex_replace('/+$', '') }}
+    aap_username: "{{ lookup('ansible.builtin.env', 'AAP_USERNAME') }}"
+    aap_password: "{{ lookup('ansible.builtin.env', 'AAP_PASSWORD') }}"
+    aap_validate_certs: >-
+      {{ (lookup('ansible.builtin.env', 'AAP_VALIDATE_CERTS') or 'true') | bool }}
+    import_allow_insecure: false
+    import_file: "{{ lookup('ansible.builtin.env', 'IMPORT_FILE') | default('reports/exported_objects.yml') }}"
+
+  module_defaults:
+    group/ansible.controller.controller:
+      controller_host: "{{ aap_hostname }}"
+      controller_username: "{{ aap_username }}"
+      controller_password: "{{ aap_password }}"
+      validate_certs: "{{ aap_validate_certs }}"
+
+  pre_tasks:
+    - name: Validate required credentials
+      ansible.builtin.assert:
+        that:
+          - aap_hostname | length > 0
+          - aap_username | length > 0
+          - aap_password | length > 0
+        fail_msg: Export AAP_HOSTNAME, AAP_USERNAME and AAP_PASSWORD first.
+
+    - name: Require secure transport before sending credentials
+      ansible.builtin.assert:
+        that:
+          - aap_hostname is match('^https://')
+          - aap_validate_certs | bool
+        fail_msg: >-
+          Export an HTTPS AAP_HOSTNAME and keep certificate validation enabled
+          (install private CA trust rather than disabling it). Credentials
+          must not be sent over HTTP or without certificate validation.
+          Set -e import_allow_insecure=true only for a throwaway lab.
+      when: not (import_allow_insecure | bool)
+
+    - name: Validate import file exists
+      ansible.builtin.stat:
+        path: "{{ import_file }}"
+      register: import_file_stat
+      failed_when: not import_file_stat.stat.exists
+      ignore_errors: true
+
+    - name: Report missing import file
+      ansible.builtin.debug:
+        msg: "Import file not found: {{ import_file }}"
+      when: not import_file_stat.stat.exists
+
+  tasks:
+    - name: Load exported assets from file
+      ansible.builtin.set_fact:
+        imported_assets: "{{ lookup('ansible.builtin.file', import_file) | from_yaml }}"
+      when: import_file_stat.stat.exists
+
+    - name: Import all objects to AAP
+      ansible.controller.import:
+        assets: "{{ imported_assets.export }}"
+      register: import_output
+      when: import_file_stat.stat.exists
+
+    - name: Display import completion message
+      ansible.builtin.debug:
+        msg: |
+          Import completed successfully.
+          Objects imported: {{ import_output.status | length if import_output.status is defined else 'N/A' }}
+          Import source: {{ import_file }}

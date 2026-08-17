@@ -1,0 +1,85 @@
+---
+- name: Export AAP objects for migration
+  hosts: localhost
+  connection: local
+  gather_facts: false
+
+  vars:
+    aap_hostname: >-
+      {{ lookup('ansible.builtin.env', 'AAP_HOSTNAME') | regex_replace('/+$', '') }}
+    aap_username: "{{ lookup('ansible.builtin.env', 'AAP_USERNAME') }}"
+    aap_password: "{{ lookup('ansible.builtin.env', 'AAP_PASSWORD') }}"
+    aap_validate_certs: >-
+      {{ (lookup('ansible.builtin.env', 'AAP_VALIDATE_CERTS') or 'true') | bool }}
+    export_allow_insecure: false
+
+  module_defaults:
+    group/ansible.controller.controller:
+      controller_host: "{{ aap_hostname }}"
+      controller_username: "{{ aap_username }}"
+      controller_password: "{{ aap_password }}"
+      validate_certs: "{{ aap_validate_certs }}"
+
+  pre_tasks:
+    - name: Validate required credentials
+      ansible.builtin.assert:
+        that:
+          - aap_hostname | length > 0
+          - aap_username | length > 0
+          - aap_password | length > 0
+        fail_msg: Export AAP_HOSTNAME, AAP_USERNAME and AAP_PASSWORD first.
+
+    - name: Require secure transport before sending credentials
+      ansible.builtin.assert:
+        that:
+          - aap_hostname is match('^https://')
+          - aap_validate_certs | bool
+        fail_msg: >-
+          Export an HTTPS AAP_HOSTNAME and keep certificate validation enabled
+          (install private CA trust rather than disabling it). Credentials
+          must not be sent over HTTP or without certificate validation.
+          Set -e export_allow_insecure=true only for a throwaway lab.
+      when: not (export_allow_insecure | bool)
+
+  tasks:
+    - name: Discover AAP version
+      ansible.builtin.uri:
+        url: "{{ aap_hostname }}/api/v2/config/"
+        url_username: "{{ aap_username }}"
+        url_password: "{{ aap_password }}"
+        force_basic_auth: true
+        validate_certs: "{{ aap_validate_certs }}"
+        return_content: true
+      register: aap_config
+      failed_when: false
+
+    - name: Extract AAP version information
+      ansible.builtin.set_fact:
+        aap_version: >-
+          {{ aap_config.json.version | default('unknown') }}
+        aap_version_safe: >-
+          {{ (aap_config.json.version | default('unknown') | regex_replace('[^0-9.]', '_')) }}
+    - name: Export all AAP objects
+      ansible.controller.export:
+        all: true
+      register: export_output
+
+    - name: Ensure reports directory exists
+      ansible.builtin.file:
+        path: reports
+        state: directory
+        mode: "0755"
+
+    - name: Save export to file
+      ansible.builtin.copy:
+        content: "{{ export_output | to_nice_yaml(explicit_start=true, explicit_end=true) }}"
+        dest: "reports/export-aap-{{ aap_version_safe }}-{{ lookup('ansible.builtin.pipe', 'date -u +%Y%m%dT%H%M%SZ') }}.yml"
+        mode: "0644"
+
+    - name: Display export completion message
+      ansible.builtin.debug:
+        msg: |
+          Export completed successfully.
+          AAP version: {{ aap_version }}
+          Objects exported: {{ export_output.export.keys() | length }}
+          Output saved to: reports/export-aap-{{ aap_version_safe }}-{{ lookup('ansible.builtin.pipe', 'date -u +%Y%m%dT%H%M%SZ') }}.yml
