@@ -1,5 +1,5 @@
 ---
-- name: Import AAP objects for migration
+- name: Import AAP 2.5 controller objects
   hosts: localhost
   connection: local
   gather_facts: false
@@ -11,8 +11,17 @@
     aap_password: "{{ lookup('ansible.builtin.env', 'AAP_PASSWORD') }}"
     aap_validate_certs: >-
       {{ (lookup('ansible.builtin.env', 'AAP_VALIDATE_CERTS') or 'true') | bool }}
+    import_file: "{{ lookup('ansible.builtin.env', 'IMPORT_FILE') }}"
+    import_checksum_file: >-
+      {{ lookup('ansible.builtin.env', 'IMPORT_CHECKSUM_FILE') or ((import_file | string) ~ '.sha256') }}
+    import_confirm: false
     import_allow_insecure: false
-    import_file: "{{ lookup('ansible.builtin.env', 'IMPORT_FILE') | default('reports/exported_objects.yml') }}"
+    import_no_log: true
+    import_rejected_wrapper_keys:
+      - assets
+      - export
+      - changed
+      - failed
 
   module_defaults:
     group/ansible.controller.controller:
@@ -22,13 +31,21 @@
       validate_certs: "{{ aap_validate_certs }}"
 
   pre_tasks:
-    - name: Validate required credentials
+    - name: Validate required import inputs and operator confirmation
       ansible.builtin.assert:
         that:
+          - not ansible_check_mode
           - aap_hostname | length > 0
           - aap_username | length > 0
           - aap_password | length > 0
-        fail_msg: Export AAP_HOSTNAME, AAP_USERNAME and AAP_PASSWORD first.
+          - import_file | trim | length > 0
+          - import_checksum_file | trim | length > 0
+          - import_confirm | bool
+        fail_msg: >-
+          Export AAP_HOSTNAME, AAP_USERNAME, AAP_PASSWORD and IMPORT_FILE (or
+          pass -e import_file=/path/to/export.yml), then explicitly authorize
+          the target mutation with -e import_confirm=true. Check mode is not a
+          supported preview for ansible.controller.import.
 
     - name: Require secure transport before sending credentials
       ansible.builtin.assert:
@@ -42,33 +59,147 @@
           Set -e import_allow_insecure=true only for a throwaway lab.
       when: not (import_allow_insecure | bool)
 
-    - name: Validate import file exists
+    - name: Inspect the import artifact and calculate its checksum
       ansible.builtin.stat:
         path: "{{ import_file }}"
+        checksum_algorithm: sha256
       register: import_file_stat
-      failed_when: not import_file_stat.stat.exists
-      ignore_errors: true
 
-    - name: Report missing import file
-      ansible.builtin.debug:
-        msg: "Import file not found: {{ import_file }}"
-      when: not import_file_stat.stat.exists
+    - name: Inspect the import checksum sidecar
+      ansible.builtin.stat:
+        path: "{{ import_checksum_file }}"
+      register: import_checksum_file_stat
+
+    - name: Require regular import and checksum files
+      ansible.builtin.assert:
+        that:
+          - import_file_stat.stat.exists | default(false)
+          - import_file_stat.stat.isreg | default(false)
+          - import_file_stat.stat.checksum is defined
+          - import_checksum_file_stat.stat.exists | default(false)
+          - import_checksum_file_stat.stat.isreg | default(false)
+        fail_msg: >-
+          IMPORT_FILE and its checksum sidecar must both exist as regular
+          files. By default the checksum path is IMPORT_FILE plus .sha256.
+
+    - name: Read the checksum sidecar
+      ansible.builtin.set_fact:
+        import_checksum_content: >-
+          {{ lookup('ansible.builtin.file', import_checksum_file) | trim }}
+      no_log: "{{ import_no_log | bool }}"
+
+    - name: Validate the checksum sidecar format
+      ansible.builtin.assert:
+        that:
+          - import_checksum_content is match('^[0-9A-Fa-f]{64}(\s+\S+)?$')
+        fail_msg: >-
+          The checksum sidecar must begin with exactly one SHA-256 digest and
+          may optionally contain a filename.
+      no_log: "{{ import_no_log | bool }}"
+
+    - name: Extract the expected checksum
+      ansible.builtin.set_fact:
+        import_expected_checksum: "{{ import_checksum_content.split()[0] | lower }}"
+      no_log: "{{ import_no_log | bool }}"
+
+    - name: Require the import artifact checksum to match
+      ansible.builtin.assert:
+        that:
+          - import_expected_checksum == (import_file_stat.stat.checksum | lower)
+        fail_msg: >-
+          The import artifact SHA-256 does not match its checksum sidecar.
+          Refusing to parse or import the file.
+      no_log: "{{ import_no_log | bool }}"
 
   tasks:
-    - name: Load exported assets from file
+    - name: Load the canonical exported assets mapping
       ansible.builtin.set_fact:
-        imported_assets: "{{ lookup('ansible.builtin.file', import_file) | from_yaml }}"
-      when: import_file_stat.stat.exists
+        imported_assets: >-
+          {{ lookup('ansible.builtin.file', import_file) | from_yaml }}
+      no_log: "{{ import_no_log | bool }}"
 
-    - name: Import all objects to AAP
+    - name: Validate the import document contract
+      ansible.builtin.assert:
+        that:
+          - imported_assets is mapping
+          - imported_assets | length > 0
+          - >-
+            (imported_assets.keys() | list | intersect(import_rejected_wrapper_keys) | length) == 0
+        fail_msg: >-
+          The import document must be the non-empty assets mapping written by
+          export.yml. Ansible result wrappers such as assets/export/changed/
+          failed are rejected.
+      no_log: "{{ import_no_log | bool }}"
+
+    - name: Validate each imported resource section
+      ansible.builtin.assert:
+        that:
+          - item.key is string
+          - item.value is sequence
+          - item.value is not string
+        fail_msg: >-
+          The import document contains a malformed resource section instead of
+          a list.
+      loop: "{{ imported_assets | dict2items }}"
+      loop_control:
+        label: "{{ item.key }}"
+      no_log: "{{ import_no_log | bool }}"
+
+    - name: Calculate import resource counts
+      ansible.builtin.set_fact:
+        import_resource_type_count: "{{ imported_assets | length }}"
+        import_object_count: >-
+          {{ imported_assets | dict2items | map(attribute='value') | map('length') | sum }}
+      no_log: "{{ import_no_log | bool }}"
+
+    - name: Refuse an unexpectedly empty import
+      ansible.builtin.assert:
+        that:
+          - import_object_count | int > 0
+        fail_msg: >-
+          The import document contains resource sections but no objects.
+          Refusing a target mutation with an empty artifact.
+
+    - name: Discover the target controller version through Platform Gateway
+      ansible.builtin.uri:
+        url: "{{ aap_hostname }}/api/controller/v2/config/"
+        url_username: "{{ aap_username }}"
+        url_password: "{{ aap_password }}"
+        force_basic_auth: true
+        validate_certs: "{{ aap_validate_certs }}"
+        return_content: true
+        status_code: 200
+        timeout: 30
+      register: aap_config
+      changed_when: false
+      no_log: "{{ import_no_log | bool }}"
+
+    - name: Require an AAP 2.5 target controller
+      ansible.builtin.assert:
+        that:
+          - aap_config.json is mapping
+          - aap_config.json.version is defined
+          - aap_config.json.version is match('^4\.6\.')
+        fail_msg: >-
+          The target did not report an AAP 2.5 controller version in the 4.6.x
+          family. This playbook intentionally does not support AAP 2.6.
+
+    - name: Import the canonical assets mapping
       ansible.controller.import:
-        assets: "{{ imported_assets.export }}"
+        assets: "{{ imported_assets }}"
+      environment:
+        CONTROLLER_OPTIONAL_API_URLPATTERN_PREFIX: /api/controller/
       register: import_output
-      when: import_file_stat.stat.exists
+      no_log: "{{ import_no_log | bool }}"
 
-    - name: Display import completion message
+    - name: Report import evidence
       ansible.builtin.debug:
-        msg: |
-          Import completed successfully.
-          Objects imported: {{ import_output.status | length if import_output.status is defined else 'N/A' }}
-          Import source: {{ import_file }}
+        msg:
+          result: IMPORT_COMPLETE
+          changed: "{{ import_output.changed | default(false) | bool }}"
+          aap_controller_version: "{{ aap_config.json.version }}"
+          resource_types: "{{ import_resource_type_count | int }}"
+          objects_in_artifact: "{{ import_object_count | int }}"
+          import_file: "{{ import_file }}"
+          checksum_file: "{{ import_checksum_file }}"
+          sha256: "{{ import_file_stat.stat.checksum }}"
