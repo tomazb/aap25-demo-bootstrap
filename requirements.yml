@@ -5,5 +5,7 @@ collections:
   # object_id and would fail the user role assignment tasks.
   - name: ansible.platform
     version: ">=2.5.20250702,<2.6.0"
+  # 4.6.20 includes the AAP 2.5 Platform Gateway export-prefix correction.
+  # Stay in the 4.6 family; AAP 2.6 collections are outside this repository.
   - name: ansible.controller
-    version: ">=4.6.0,<4.7.0"
+    version: ">=4.6.20,<4.7.0"

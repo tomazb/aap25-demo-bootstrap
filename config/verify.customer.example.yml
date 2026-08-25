@@ -75,6 +75,8 @@ ssh_canary_allowlist:
 # here. Each user needs expected_job_templates (positive visibility) and
 # forbidden_organizations (negative visibility). The expected organization must
 # not appear in forbidden_organizations.
+# For the stock seeded demo users only, prefer config/verify.rbac.example.yml.
+# Keep this customer file for mixed customer-shaped functional + RBAC overlays.
 rbac_allow_empty: false
 rbac_users:
   - username: demo-alice

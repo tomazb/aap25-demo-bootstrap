@@ -1,0 +1,30 @@
+---
+- name: Demonstrate a synthetic platform change window
+  hosts: all
+  gather_facts: false
+  tasks:
+    - name: Validate required change-window survey data
+      ansible.builtin.assert:
+        that:
+          - change_ticket | length > 0
+          - change_summary | length > 0
+          - requested_environment in ['development', 'test', 'production']
+        fail_msg: Required survey values are missing or invalid
+
+    - name: Require local connection for synthetic platform hosts
+      ansible.builtin.assert:
+        that:
+          - (ansible_connection | default('')) == 'local'
+        fail_msg: >-
+          Demo platform hosts must use ansible_connection=local; refusing to
+          continue against a remote connection.
+
+    - name: Display the synthetic change window
+      ansible.builtin.debug:
+        msg:
+          host: "{{ inventory_hostname }}"
+          change_ticket: "{{ change_ticket }}"
+          change_summary: "{{ change_summary }}"
+          requested_environment: "{{ requested_environment }}"
+          change_window: "{{ change_window | default('lab-maintenance') }}"
+          changed_real_systems: false

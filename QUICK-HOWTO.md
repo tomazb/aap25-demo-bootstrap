@@ -252,9 +252,11 @@ objects). For a throwaway lab that used the insecure override, add
 ## Where to go next
 
 - [README section 7](README.md#7-migration-verification-aap-25-rpm---aap-25-on-openshift)
-  covers the three-layer migration verification (smoke, content parity,
-  functional equivalence) and the operator runbook for an RPM-to-OpenShift
-  migration.
+  covers migration verification (smoke, parity, functional, **RBAC**) and the
+  operator runbook for an RPM-to-OpenShift migration.
+- [README section 8](README.md#8-supplemental-controller-object-transfer) and
+  [docs/controller-object-transfer.md](docs/controller-object-transfer.md)
+  cover supplemental controller export/import (not a database migration).
 - `config/demo.yml` defines every seeded object; edit it to change the demo
   content.
 - [README security and lifecycle notes](README.md#security-and-lifecycle-notes)

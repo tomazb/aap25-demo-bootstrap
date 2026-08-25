@@ -145,6 +145,18 @@ parity_types:
       - summary_fields.organization.name
       - name
 
+# Expanded parity (disabled until real AAP 2.5 response fixtures exist).
+# Do not enable these by guessing API shapes. To promote a type:
+#   1. Capture a real AAP 2.5 list response for source and target routes.
+#   2. Add offline fixtures under tests/fixtures/parity/.
+#   3. Enable the type here with verified key/field paths only.
+# Candidates: groups; group-host associations; inventory sources;
+# custom credential types; JT inventory/credentials/EE/survey/notification
+# associations; workflow nodes/edges; schedule rrule detail;
+# organization/team memberships; platform role assignments;
+# gateway authenticator definitions and maps.
+# Never compare credential secrets.
+
 # Gateway RBAC role assignments and AD authenticator maps are deliberately NOT
 # compared here: their AAP 2.5 API shapes are not verified against real
 # fixtures. They are tracked as disabled-by-default Phase 2 work.

@@ -215,6 +215,20 @@
       loop_control:
         label: "{{ item.organization }} / {{ item.name }}"
 
+    - name: Create demo credentials
+      ansible.controller.credential:
+        name: "{{ item.name }}"
+        organization: "{{ item.organization }}"
+        credential_type: "{{ item.credential_type }}"
+        description: "{{ item.description }}"
+        inputs: "{{ item.inputs }}"
+        update_secrets: false
+        state: present
+      loop: "{{ demo_credentials }}"
+      loop_control:
+        label: "{{ item.organization }} / {{ item.name }}"
+      no_log: true
+
     - name: Create demo job templates
       ansible.controller.job_template:
         name: "{{ item.name }}"
@@ -224,6 +238,7 @@
         inventory: "{{ item.inventory }}"
         project: "{{ item.project }}"
         playbook: "{{ item.playbook }}"
+        credentials: "{{ item.credentials | default(omit) }}"
         ask_variables_on_launch: true
         survey_enabled: "{{ item.survey }}"
         survey_spec: "{{ demo_change_survey if item.survey else omit }}"
@@ -264,19 +279,6 @@
                 - test
                 - production
               default: development
-
-    - name: Create demo credentials
-      ansible.controller.credential:
-        name: "{{ item.name }}"
-        organization: "{{ item.organization }}"
-        credential_type: "{{ item.credential_type }}"
-        description: "{{ item.description }}"
-        inputs: "{{ item.inputs }}"
-        update_secrets: false
-        state: present
-      loop: "{{ demo_credentials }}"
-      loop_control:
-        label: "{{ item.organization }} / {{ item.name }}"
 
     - name: Create demo labels
       ansible.controller.label:

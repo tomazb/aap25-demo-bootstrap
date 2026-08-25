@@ -1,0 +1,37 @@
+---
+# EXAMPLE lab RBAC overlay for verify_rbac.yml against the seeded demo users.
+# Copy to a gitignored file (for example config/verify.rbac.yml) if you customize
+# it. Passwords are NEVER set here — use RBAC_DEMO_PASSWORD or Vault
+# demo_user_password.
+#
+#   export RBAC_DEMO_PASSWORD='…'
+#   ansible-playbook verify_rbac.yml -e @config/verify.rbac.example.yml
+#
+# Default config/verify.yml leaves rbac_users empty so accidental runs are
+# NOT_RUN unless explicitly opted in.
+
+rbac_allow_empty: false
+rbac_users:
+  - username: demo-alice
+    organization: Demo Linux
+    expected_job_templates:
+      - Demo 01 - Linux hello
+      - Demo 02 - Linux inventory report
+    forbidden_organizations:
+      - Demo Network
+      - Demo Platform
+  - username: demo-carol
+    organization: Demo Network
+    expected_job_templates:
+      - Demo 03 - Network discovery simulation
+    forbidden_organizations:
+      - Demo Linux
+      - Demo Platform
+  - username: demo-erin
+    organization: Demo Platform
+    expected_job_templates:
+      - Demo 04 - Surveyed platform change
+      - Demo 05 - Controlled outcome
+    forbidden_organizations:
+      - Demo Linux
+      - Demo Network

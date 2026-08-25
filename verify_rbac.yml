@@ -47,7 +47,8 @@
               - Target: {{ aap_hostname }}
               - Timestamp: {{ rbac_timestamp }}
 
-              No rbac_users configured (see config/verify.customer.example.yml).
+              No rbac_users configured (see config/verify.rbac.example.yml or
+              config/verify.customer.example.yml).
               NOT_RUN is not a PASS.
 
               RESULT: NOT_RUN
@@ -57,9 +58,10 @@
             that:
               - rbac_allow_empty | bool
             fail_msg: >-
-              No rbac_users configured. Configure them in
-              config/verify.customer.yml, or pass -e rbac_allow_empty=true to
-              accept a NOT_RUN result (exit 0). NOT_RUN is never PASS.
+              No rbac_users configured (see config/verify.rbac.example.yml or
+              config/verify.customer.example.yml). Configure them in a
+              gitignored overlay, or pass -e rbac_allow_empty=true to accept a
+              NOT_RUN result (exit 0). NOT_RUN is never PASS.
         - name: End play after NOT_RUN report
           ansible.builtin.meta: end_play
 
