@@ -362,12 +362,12 @@ prove team-scoped visibility. After bootstrap with local users, run:
 
 ```bash
 export RBAC_DEMO_PASSWORD='…'
-aap_run verify_rbac.yml -e @config/verify.customer.example.yml
+aap_run verify_rbac.yml -e @config/verify.rbac.example.yml
 ```
 
-Use the `rbac_users` block in `config/verify.customer.example.yml` (copy to a
-gitignored overlay if you add real names). Phase C adds a dedicated lab RBAC
-example.
+See `config/verify.rbac.example.yml` for the seeded demo users (copy to a
+gitignored overlay if you customize). For mixed customer-shaped functional +
+RBAC overlays, use `config/verify.customer.example.yml` instead.
 
 Each `rbac_users` entry must list `expected_job_templates` (positive: visible
 exactly once in the user's organization) and `forbidden_organizations`
