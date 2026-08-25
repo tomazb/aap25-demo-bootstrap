@@ -78,16 +78,6 @@
       loop_control:
         label: "{{ item.organization }} / {{ item.name }}"
 
-    - name: Remove demo credentials
-      ansible.controller.credential:
-        name: "{{ item.name }}"
-        organization: "{{ item.organization }}"
-        credential_type: "{{ item.credential_type }}"
-        state: absent
-      loop: "{{ demo_credentials }}"
-      loop_control:
-        label: "{{ item.organization }} / {{ item.name }}"
-
     # Labels cannot be deleted through the controller API; the controller
     # garbage-collects labels once nothing references them (the referencing
     # job templates are removed below).
@@ -98,6 +88,16 @@
         organization: "{{ item.organization }}"
         state: absent
       loop: "{{ demo_job_templates }}"
+      loop_control:
+        label: "{{ item.organization }} / {{ item.name }}"
+
+    - name: Remove demo credentials
+      ansible.controller.credential:
+        name: "{{ item.name }}"
+        organization: "{{ item.organization }}"
+        credential_type: "{{ item.credential_type }}"
+        state: absent
+      loop: "{{ demo_credentials }}"
       loop_control:
         label: "{{ item.organization }} / {{ item.name }}"
 
