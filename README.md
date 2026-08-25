@@ -17,6 +17,43 @@ This repository populates a fresh Ansible Automation Platform 2.5 installation w
 
 No task contacts a real managed host. Every synthetic host uses `ansible_connection: local`, and the content is limited to `debug`, `assert`, `set_stats`, and an intentional `fail` task.
 
+## What's in this repo
+
+| Path | Purpose |
+|---|---|
+| `bootstrap.yml` / `teardown.yml` | Seed and remove disposable `Demo` content |
+| `verify_smoke.yml` | Layer 1 — admin smoke gate on one AAP |
+| `verify_parity.yml` | Layer 2 — source→target content parity |
+| `verify_functional.yml` | Layer 3 — curated functional checks |
+| `verify_rbac.yml` | Layer 4 — restricted-user visibility (not covered by smoke) |
+| `badpractice.yml` | Optional Default-organization anti-pattern demo |
+| `export.yml` / `import.yml` | Supplemental controller object transfer (not a DB migration) |
+| `docs/controller-object-transfer.md` | Operator procedure and safety boundary for export/import |
+| `config/demo.yml` | All seeded demo objects |
+| `config/verify.yml` | Parity types and functional/RBAC defaults |
+
+## Architecture (gateway → controller → verify)
+
+```mermaid
+flowchart LR
+  GW[Platform gateway orgs teams users RBAC]
+  WAIT[Wait for org propagation]
+  CTL[Controller inventories projects templates workflows schedules]
+  SEED[Seed job history]
+  V1[verify_smoke admin]
+  V4[verify_rbac as demo user]
+  V2[verify_parity source to target]
+  GW --> WAIT --> CTL --> SEED
+  SEED --> V1
+  SEED --> V4
+  CTL --> V2
+```
+
+- Gateway-managed identity/access objects are created first; controller objects wait until organizations are visible on `/api/controller/v2/organizations/`.
+- Admin smoke proves availability and seeded content; it does **not** prove RBAC.
+- Restricted-user RBAC authenticates **as** each configured demo user.
+- Parity compares a read-only source gateway/controller to a target.
+
 In a hurry? [QUICK-HOWTO.md](QUICK-HOWTO.md) is a one-page copy-pasteable deployment path; the sections below explain each step and cover migration verification.
 
 ## 1. Publish this repository
@@ -317,14 +354,34 @@ report and exits non-zero (NOT_RUN is not a PASS); pass
 report ends with a manual checklist (SSO/LDAP login, settings, instance/
 container groups, mesh topology) for what cannot be automated responsibly.
 
+### Layer 4 - restricted-user RBAC
+
+`verify_smoke.yml` authenticates as the admin user and therefore does **not**
+prove team-scoped visibility. After bootstrap with local users, run:
+
+```bash
+export RBAC_DEMO_PASSWORD='…'
+aap_run verify_rbac.yml -e @config/verify.customer.example.yml
+```
+
+Use the `rbac_users` block in `config/verify.customer.example.yml` (copy to a
+gitignored overlay if you add real names). Phase C adds a dedicated lab RBAC
+example.
+
+Each `rbac_users` entry must list `expected_job_templates` (positive: visible
+exactly once in the user's organization) and `forbidden_organizations`
+(negative: no templates from those orgs). Empty `rbac_users` writes
+`RESULT: NOT_RUN` and exits non-zero unless `-e rbac_allow_empty=true`.
+Passwords never appear in reports.
+
 ### Operator runbook
 
 1. Seed the AAP 2.5 RPM source with `bootstrap.yml` (or use existing content).
 2. Run `verify_smoke.yml` and curated `verify_functional.yml` against the
    source; preserve the reports.
 3. Perform the migration using the approved migration process.
-4. Run `verify_parity.yml` (source -> target) and `verify_functional.yml`
-   against the target.
+4. Run `verify_parity.yml` (source -> target), `verify_functional.yml`, and
+   `verify_rbac.yml` against the target (RBAC only when local demo users exist).
 5. Complete the manual checklist items.
 6. Preserve all reports as migration evidence.
 7. Tear down only the disposable `Demo` objects (`teardown.yml`).
@@ -334,6 +391,17 @@ container groups, mesh topology) for what cannot be automated responsibly.
 Offline tests pass in CI (unit, syntax, pagination, parity, smoke, functional).
 Live AAP 2.5 RPM-to-OpenShift acceptance remains outstanding; no live AAP
 result is claimed here.
+
+## 8. Supplemental controller object transfer
+
+`export.yml` and `import.yml` capture and recreate Automation Controller
+objects supported by the installed AAP 2.5 `ansible.controller` collection.
+They are a supplemental configuration-transfer artifact. They do **not**
+replace the supported component database and secrets migration.
+
+- Procedure and safety boundary: [docs/controller-object-transfer.md](docs/controller-object-transfer.md)
+- Export writes a mode-`0600` assets YAML plus a SHA-256 sidecar under a mode-`0700` directory.
+- Import requires `-e import_confirm=true`, matching checksum, and a `4.6.x` controller behind the Platform Gateway root in `AAP_HOSTNAME`.
 
 ## Security and lifecycle notes
 
