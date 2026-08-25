@@ -203,7 +203,7 @@ demo_job_templates:
     organization: Demo Network
     inventory: Demo Network Inventory
     project: Demo Network Content
-    playbook: content/playbooks/inventory_report.yml
+    playbook: content/playbooks/network_discovery.yml
     description: Simulates network discovery without contacting network equipment
     survey: false
   - name: Demo 04 - Surveyed platform change
