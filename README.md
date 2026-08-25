@@ -389,9 +389,11 @@ Passwords never appear in reports.
 
 ### Live acceptance status
 
-Offline tests pass in CI (unit, syntax, pagination, parity, smoke, functional).
-Live AAP 2.5 RPM-to-OpenShift acceptance remains outstanding; no live AAP
-result is claimed here.
+Offline tests pass in CI. Live AAP 2.5 RPM-to-OpenShift acceptance remains
+outstanding; no live AAP result is claimed here. See
+[docs/live-acceptance-prep.md](docs/live-acceptance-prep.md) for what offline
+covers, what a live run must still prove, and what this repository will never
+claim from mocks alone.
 
 ## 8. Supplemental controller object transfer
 

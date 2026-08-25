@@ -78,6 +78,8 @@ managed host.
 - Verification is AAP 2.5 RPM (with gateway) -> AAP 2.5 on OpenShift. It
   verifies a migration; it does not perform one. Do not add AAP 2.6 API paths,
   collections, or docs. Source access is read-only (`SOURCE_AAP_*` env vars).
+  Live acceptance scope and parity expansion policy: `docs/live-acceptance-prep.md`
+  and the comment block after `parity_types` in `config/verify.yml`.
 - Verification playbooks require HTTPS + cert validation before sending
   credentials (lab-only `*_allow_insecure` overrides default false and stamp
   the report UNSAFE), collect all failures, and fail once at the end. Reports
