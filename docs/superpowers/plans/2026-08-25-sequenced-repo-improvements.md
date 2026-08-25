@@ -79,14 +79,13 @@ Use this content (adjust wording slightly only if it would duplicate an adjacent
 
 - [ ] **Step 2: Insert an architecture subsection after the new map (or after the safety paragraph above section 1).**
 
-```markdown
-## Architecture (gateway → controller → verify)
+Add heading `## Architecture (gateway → controller → verify)`, then a mermaid diagram with this graph definition (single fence in README — do not nest fences):
 
-```mermaid
+```text
 flowchart LR
-  GW[Platform gateway<br/>orgs teams users RBAC]
+  GW[Platform gateway orgs teams users RBAC]
   WAIT[Wait for org propagation]
-  CTL[Controller<br/>inventories projects templates<br/>workflows schedules]
+  CTL[Controller inventories projects templates workflows schedules]
   SEED[Seed job history]
   V1[verify_smoke admin]
   V4[verify_rbac as demo user]
@@ -97,13 +96,12 @@ flowchart LR
   CTL --> V2
 ```
 
+Then these bullets:
+
 - Gateway-managed identity/access objects are created first; controller objects wait until organizations are visible on `/api/controller/v2/organizations/`.
 - Admin smoke proves availability and seeded content; it does **not** prove RBAC.
 - Restricted-user RBAC authenticates **as** each configured demo user.
 - Parity compares a read-only source gateway/controller to a target.
-```
-
-Note: the outer fence above is illustrative in this plan — in `README.md` use one mermaid fence and normal markdown around it (do not nest fences).
 
 - [ ] **Step 3: In section 7, after Layer 3 and before “### Operator runbook”, add Layer 4.**
 
