@@ -227,6 +227,7 @@
       loop: "{{ demo_credentials }}"
       loop_control:
         label: "{{ item.organization }} / {{ item.name }}"
+      no_log: true
 
     - name: Create demo job templates
       ansible.controller.job_template:

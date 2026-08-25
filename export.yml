@@ -117,6 +117,7 @@
           - item.key is string
           - item.value is sequence
           - item.value is not string
+          - item.value is not mapping
         fail_msg: >-
           The exporter returned a malformed resource section instead of a list.
       loop: "{{ export_output.assets | dict2items }}"

@@ -47,7 +47,7 @@
 
 # Phase A — Docs discoverability
 
-### Task 1: README map, architecture, Layer 4 stub, object transfer
+## Task 1: README map, architecture, Layer 4 stub, object transfer
 
 **Files:**
 - Modify: `README.md`
@@ -105,7 +105,7 @@ Then these bullets:
 
 - [ ] **Step 3: In section 7, after Layer 3 and before “### Operator runbook”, add Layer 4.**
 
-```markdown
+````markdown
 ### Layer 4 - restricted-user RBAC
 
 `verify_smoke.yml` authenticates as the admin user and therefore does **not**
@@ -125,7 +125,7 @@ exactly once in the user's organization) and `forbidden_organizations`
 Passwords never appear in reports. See `config/verify.rbac.example.yml`
 (Phase C adds this file; until then point at the `rbac_users` block in
 `config/verify.customer.example.yml`).
-```
+````
 
 **Phase A interim:** In Task 1, point Layer 4 at `config/verify.customer.example.yml` only. Task 7 (Phase C) switches the README link to `config/verify.rbac.example.yml` when that file exists. Do **not** leave a broken link in the merged Phase A README.
 
@@ -175,7 +175,7 @@ EOF
 )"
 ```
 
-### Task 2: QUICK-HOWTO links and CI branch hygiene
+## Task 2: QUICK-HOWTO links and CI branch hygiene
 
 **Files:**
 - Modify: `QUICK-HOWTO.md` (Where to go next)
@@ -243,7 +243,7 @@ EOF
 
 # Phase B — Richer safe demo content
 
-### Task 3: Network discovery playbook + Demo 03 wiring
+## Task 3: Network discovery playbook + Demo 03 wiring
 
 **Files:**
 - Create: `content/playbooks/network_discovery.yml`
@@ -323,7 +323,7 @@ EOF
 )"
 ```
 
-### Task 4: Platform change-window playbook + Demo 04 wiring + credential attach
+## Task 4: Platform change-window playbook + Demo 04 wiring + credential attach
 
 **Files:**
 - Create: `content/playbooks/platform_change_window.yml`
@@ -432,7 +432,7 @@ In post-bootstrap checks, keep the Credentials checklist item; optionally note D
 ansible-playbook --syntax-check content/playbooks/platform_change_window.yml
 bash tests/syntax_check.sh
 ANSIBLE_COLLECTIONS_PATH=.tmp/collections ansible-lint --offline \
-  bootstrap.yml content/ || true
+  bootstrap.yml content/
 ```
 
 If `.tmp/collections` is missing, run `tests/syntax_check.sh` first (it builds stubs), then re-run lint as in CI:
@@ -467,7 +467,7 @@ EOF
 
 # Phase C — Verification depth
 
-### Task 5: Lab RBAC example overlay
+## Task 5: Lab RBAC example overlay
 
 **Files:**
 - Create: `config/verify.rbac.example.yml`
@@ -562,7 +562,7 @@ EOF
 )"
 ```
 
-### Task 6: Parity expansion policy + live acceptance prep
+## Task 6: Parity expansion policy + live acceptance prep
 
 **Files:**
 - Modify: `config/verify.yml` (comment block after `parity_types` / near the Phase 2 note)
@@ -655,7 +655,7 @@ EOF
 )"
 ```
 
-### Task 7: Final initiative verification
+## Task 7: Final initiative verification
 
 **Files:**
 - None required beyond fixes if gates fail

@@ -59,10 +59,9 @@
           Set -e import_allow_insecure=true only for a throwaway lab.
       when: not (import_allow_insecure | bool)
 
-    - name: Inspect the import artifact and calculate its checksum
+    - name: Inspect the import artifact
       ansible.builtin.stat:
         path: "{{ import_file }}"
-        checksum_algorithm: sha256
       register: import_file_stat
 
     - name: Inspect the import checksum sidecar
@@ -75,12 +74,22 @@
         that:
           - import_file_stat.stat.exists | default(false)
           - import_file_stat.stat.isreg | default(false)
-          - import_file_stat.stat.checksum is defined
           - import_checksum_file_stat.stat.exists | default(false)
           - import_checksum_file_stat.stat.isreg | default(false)
         fail_msg: >-
           IMPORT_FILE and its checksum sidecar must both exist as regular
           files. By default the checksum path is IMPORT_FILE plus .sha256.
+
+    - name: Read the import artifact once
+      ansible.builtin.set_fact:
+        import_artifact_content: >-
+          {{ lookup('ansible.builtin.file', import_file, rstrip=false, lstrip=false) }}
+      no_log: "{{ import_no_log | bool }}"
+
+    - name: Calculate the imported artifact checksum
+      ansible.builtin.set_fact:
+        import_actual_checksum: "{{ import_artifact_content | hash('sha256') }}"
+      no_log: "{{ import_no_log | bool }}"
 
     - name: Read the checksum sidecar
       ansible.builtin.set_fact:
@@ -105,7 +114,7 @@
     - name: Require the import artifact checksum to match
       ansible.builtin.assert:
         that:
-          - import_expected_checksum == (import_file_stat.stat.checksum | lower)
+          - import_expected_checksum == import_actual_checksum
         fail_msg: >-
           The import artifact SHA-256 does not match its checksum sidecar.
           Refusing to parse or import the file.
@@ -114,8 +123,7 @@
   tasks:
     - name: Load the canonical exported assets mapping
       ansible.builtin.set_fact:
-        imported_assets: >-
-          {{ lookup('ansible.builtin.file', import_file) | from_yaml }}
+        imported_assets: "{{ import_artifact_content | from_yaml }}"
       no_log: "{{ import_no_log | bool }}"
 
     - name: Validate the import document contract
@@ -137,6 +145,7 @@
           - item.key is string
           - item.value is sequence
           - item.value is not string
+          - item.value is not mapping
         fail_msg: >-
           The import document contains a malformed resource section instead of
           a list.
@@ -202,4 +211,4 @@
           objects_in_artifact: "{{ import_object_count | int }}"
           import_file: "{{ import_file }}"
           checksum_file: "{{ import_checksum_file }}"
-          sha256: "{{ import_file_stat.stat.checksum }}"
+          sha256: "{{ import_actual_checksum }}"

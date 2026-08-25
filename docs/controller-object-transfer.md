@@ -1,5 +1,11 @@
 # AAP 2.5 Automation Controller object transfer
 
+> **Draft-only validation status:** Real AAP 2.5 source export and disposable-
+> target import validation remain outstanding. Offline contract and harness
+> coverage pass; do not treat this procedure as operationally cleared until
+> both live validations succeed on disposable or independently recoverable
+> AAP 2.5 systems.
+
 This procedure uses `ansible.controller.export` and
 `ansible.controller.import` to capture and recreate the Automation Controller
 object types supported by the installed AAP 2.5 collection.
@@ -102,22 +108,24 @@ printf '\n'
 export AAP_PASSWORD
 
 ansible-playbook import.yml -e import_confirm=true
-unset AAP_PASSWORD
 ```
 
 The playbook requires the sidecar at `${IMPORT_FILE}.sha256` by default. Set
 `IMPORT_CHECKSUM_FILE` only when the sidecar has a different approved path.
 A successful run reports `IMPORT_COMPLETE`, the target controller version,
 artifact checksum, resource-type count, object count, and the module's observed
-`changed` value.
+`changed` value. Keep `AAP_PASSWORD` set through the negative checks below, then
+unset it.
 
 ## Mandatory negative checks before a live import
 
 Run these only against the disposable target and verify that its object counts
-do not change:
+do not change. Keep target credentials exported for the whole section so each
+command reaches its intended gate (do not `unset AAP_PASSWORD` until the checks
+finish):
 
 ```bash
-# Missing explicit confirmation: must fail before import.
+# Missing explicit confirmation: must fail on import_confirm before mutation.
 ansible-playbook import.yml
 
 # Import has no safe check-mode preview: must fail before import.
@@ -126,11 +134,21 @@ ansible-playbook import.yml --check -e import_confirm=true
 # Checksum mismatch: copy the sidecar, alter only the copied digest, and point
 # IMPORT_CHECKSUM_FILE at that copy. The run must fail before YAML parsing or
 # target mutation.
+cp "${IMPORT_FILE}.sha256" /tmp/bad.sha256
+# Edit /tmp/bad.sha256 so the digest no longer matches IMPORT_FILE.
+ansible-playbook import.yml -e import_confirm=true \
+  -e IMPORT_CHECKSUM_FILE=/tmp/bad.sha256
 ```
 
 Also validate failure for a missing payload, malformed YAML root, wrapped
 Ansible result (`assets`, `export`, `changed`, or `failed` at the root), and a
-non-`4.6.x` target. Do not weaken the gates to make a negative test pass.
+non-`4.6.x` target. Prefer the offline harness in
+`tests/export_import_offline.sh`, which already exercises those gates with
+local stubs. Do not weaken the gates to make a negative test pass.
+
+```bash
+unset AAP_PASSWORD
+```
 
 ## Post-import verification
 

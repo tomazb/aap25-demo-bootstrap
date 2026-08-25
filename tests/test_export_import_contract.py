@@ -101,7 +101,9 @@ def test_import_requires_explicit_confirmation_valid_file_and_matching_checksum(
 
     stat_tasks = find_tasks(play, "ansible.builtin.stat")
     assert len(stat_tasks) >= 2, "both the asset file and checksum sidecar must be stat'ed"
-    assert "checksum_algorithm: sha256" in text
+    assert "hash('sha256')" in text
+    assert "import_artifact_content" in text
+    assert "import_actual_checksum" in text
     assert "import_expected_checksum" in text
     assert "import_file_stat.stat.isreg" in text
     assert "import_checksum_file_stat.stat.isreg" in text
@@ -140,6 +142,10 @@ def test_import_rejects_wrapped_or_malformed_export_documents() -> None:
     assert "imported_assets | length > 0" in text
     assert "item.value is sequence" in text
     assert "item.value is not string" in text
+    assert "item.value is not mapping" in text
+
+    export_text = read_text("export.yml")
+    assert "item.value is not mapping" in export_text
 
 
 def test_controller_collection_floor_contains_gateway_export_fix() -> None:
