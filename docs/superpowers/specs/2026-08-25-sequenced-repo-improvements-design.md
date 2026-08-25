@@ -163,11 +163,8 @@ job history while remaining fully synthetic.
      existence + type only.
 
 4. **Workflow**
-   - Keep the existing hello → report chain.
-   - **No approval nodes** in this phase.
-   - Optional third node only if it stays teardown-safe and smoke-covered;
-     default is leave the two-node workflow unchanged unless planning shows a
-     clear need.
+   - Keep the existing two-node hello → report chain unchanged.
+   - **No approval nodes** and **no third node** in this phase.
 
 5. **Deferred past B**
    - Inventory sources / constructed inventories.
