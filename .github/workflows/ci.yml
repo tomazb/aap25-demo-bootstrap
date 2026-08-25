@@ -4,7 +4,7 @@ name: CI
 # credentials, no Automation Hub, no Galaxy downloads, no customer secrets.
 on:
   push:
-    branches: [main, worktree-migration-verification, customer-shaped-migration-lab]
+    branches: [main]
   pull_request:
 
 permissions:
