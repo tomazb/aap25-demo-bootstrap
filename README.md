@@ -9,9 +9,10 @@ This repository populates a fresh Ansible Automation Platform 2.5 installation w
 - five safe job templates, including a survey and a controlled failure;
 - one workflow job template chaining two of the demo templates;
 - one enabled weekly schedule, one webhook notification template pointing at
-  a non-routable URL, one machine credential with a clearly-fake password,
-  and one label — so every object type compared by `verify_parity.yml` is
-  exercised by seeded content (execution environments excepted: a custom EE
+  a non-routable URL, one machine credential (fake password) attached to the
+  surveyed platform-change template, and one label — so every object type
+  compared by `verify_parity.yml` is exercised by seeded content (execution
+  environments excepted: a custom EE
   needs a pullable image, and the default EEs already exercise that type);
 - seeded successful and failed job history.
 
@@ -241,7 +242,7 @@ In every mode, verify in the unified UI:
 9. Automation Execution -> Administration -> Notifiers: `Demo Webhook
    Notifier`.
 10. Automation Execution -> Infrastructure -> Credentials: `Demo Platform
-    Machine Credential`.
+    Machine Credential` (attached to Demo 04).
 
 When `demo_create_users=true`, also verify:
 
