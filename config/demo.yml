@@ -25,7 +25,7 @@ demo_teams:
 # sees and manages their own organization's demo content.
 #
 # Passwords are never stored in this file. Provide demo_user_password from an
-# Ansible Vault-encrypted file (see README section 4); it is applied to every
+# Ansible Vault-encrypted file (see the Quickstart in README.md); it is applied to every
 # demo user. Set demo_create_users to false to skip local user creation
 # entirely (for example when teams map to an external IdP).
 demo_create_users: true

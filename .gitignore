@@ -1,4 +1,4 @@
-# Local demo secrets — never commit (see README section 4)
+# Local demo secrets — never commit (see the Quickstart in README.md)
 config/secrets.yml
 
 # Customer verification overlay (real hostnames/paths) — never commit

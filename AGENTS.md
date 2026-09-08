@@ -23,10 +23,11 @@ managed host.
   `ansible.controller >=4.6.20,<4.7.0` (AAP 2.5 Platform Gateway-compatible
   export/import floor). Do not bump to 2.6/2.7 families against AAP 2.5.
 - `teardown.yml` — removes everything bootstrap.yml created (reverse order).
-- `verify_smoke.yml` / `verify_parity.yml` / `verify_functional.yml` —
-  three-layer migration verification (see README section 7); config in
-  `config/verify.yml`, shared pagination in `tasks/`, diff logic in
-  `filter_plugins/parity.py` (pytest-covered in `tests/`).
+- `verify_smoke.yml` / `verify_parity.yml` / `verify_functional.yml` /
+  `verify_rbac.yml` — four-layer migration verification (see
+  `docs/migration-verification.md`); config in `config/verify.yml`, shared
+  pagination in `tasks/`, diff logic in `filter_plugins/parity.py`
+  (pytest-covered in `tests/`).
 - `export.yml` / `import.yml` — supplemental Automation Controller object
   transfer. The on-disk YAML is exactly the export module's `assets` mapping,
   protected by a SHA-256 sidecar; import requires explicit confirmation and
@@ -34,6 +35,13 @@ managed host.
   component database/secrets migration and do not preserve full history.
 - `docs/controller-object-transfer.md` — operator procedure and safety boundary
   for the supplemental export/import workflow.
+- `docs/runtimes-and-prerequisites.md` — control-node prerequisites (incl.
+  RHEL 8) and the execution-environment runtime (`ansible-navigator`).
+- `docs/deployment-options.md` — no-users mode, config-only reruns, lab-only
+  insecure overrides, the full post-bootstrap checklist, and the
+  `badpractice.yml` anti-pattern demo.
+- `docs/migration-verification.md` — the four verification layers and the
+  RPM→OpenShift operator runbook.
 
 ## Conventions
 - Keep every demo object prefixed with `Demo` so it can be identified and removed.
