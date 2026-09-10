@@ -58,8 +58,13 @@ turning validation off.
 In a throwaway lab only, override the check:
 
 ```bash
-ansible-playbook bootstrap.yml … -e bootstrap_allow_insecure=true
-ansible-playbook teardown.yml     -e teardown_allow_insecure=true
+ansible-playbook bootstrap.yml \
+  -e demo_scm_url='https://git.example.com/automation/aap25-demo-bootstrap.git' \
+  -e demo_scm_branch='<commit-sha-or-immutable-tag>' \
+  -e @config/secrets.yml --ask-vault-pass \
+  -e bootstrap_allow_insecure=true
+
+ansible-playbook teardown.yml -e teardown_allow_insecure=true
 ```
 
 `verify_smoke.yml` accepts `-e smoke_allow_insecure=true` in the same spirit;
@@ -114,7 +119,11 @@ availability and content but not RBAC. To verify team-scoped visibility, see
 ## Removing the demo content
 
 ```bash
+# Secure bootstrap:
 ansible-playbook teardown.yml
+
+# Bootstrap used bootstrap_allow_insecure=true in a throwaway lab:
+ansible-playbook teardown.yml -e teardown_allow_insecure=true
 ```
 
 Removes the demo organizations and every object the bootstrap created inside

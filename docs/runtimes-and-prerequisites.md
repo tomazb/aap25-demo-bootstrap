@@ -21,7 +21,12 @@ Stock RHEL 8 `python3` is 3.6, which cannot run ansible-core 2.16. Either:
   ```bash
   sudo dnf install python3.12
   python3.12 -m pip install --user ansible-core==2.16.14
+  export PATH="$(python3.12 -m site --user-base)/bin:$PATH"
   ```
+
+  Add the same user-base `bin` directory to your shell profile so
+  `ansible-galaxy`, `ansible-playbook`, and `ansible-vault` remain available in
+  later shells.
 
 - or install `ansible-navigator` on a supported host Python and run the
   playbooks from an AAP execution environment (see below). This route also

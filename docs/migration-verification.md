@@ -4,17 +4,30 @@ Four independent, pipeline-gateable playbooks help **verify** a migration from
 **AAP 2.5 on RPM/RHEL (with the automation gateway)** to a fresh **AAP 2.5 on
 OpenShift**. This repository does not perform the platform or database migration
 — it seeds a lab and verifies a migration performed by another process.
-Source-side access is always read-only. Each playbook writes a Markdown report to
-`reports/` (gitignored) and exits non-zero on failure.
+Source-side access by the verification playbooks is always read-only; the
+optional `bootstrap.yml` lab-seeding step described below is pre-verification
+setup and writes disposable demo content. Each verification playbook writes a
+Markdown report to `reports/` (gitignored) and exits non-zero on failure.
 
 All verification playbooks require an HTTPS endpoint with certificate validation
 before sending credentials (install private CA trust rather than disabling
-validation). For a throwaway lab only, `verify_smoke.yml` accepts
-`-e smoke_allow_insecure=true`, which bypasses that check and stamps an UNSAFE
-marker on the generated report; never use it against a customer or production
-endpoint. Operational errors — API/transport failures, pagination truncation,
-duplicate normalized keys, missing/invalid fixtures — always fail the run, in
-every mode.
+validation). For a throwaway lab only, use the override corresponding to the
+verification playbook: `-e smoke_allow_insecure=true`,
+`-e functional_allow_insecure=true`, or `-e rbac_allow_insecure=true`. For
+example:
+
+```bash
+ansible-playbook verify_smoke.yml -e smoke_allow_insecure=true
+ansible-playbook verify_rbac.yml \
+  -e @config/verify.rbac.example.yml -e rbac_allow_insecure=true
+```
+
+Each override bypasses that playbook's transport check and stamps an UNSAFE
+marker on its report. `verify_parity.yml` has no insecure live-mode override;
+both endpoints must use HTTPS with certificate validation. Never use an
+insecure override against a customer or production endpoint. Operational errors
+— API/transport failures, pagination truncation, duplicate normalized keys,
+missing/invalid fixtures — always fail the run, in every mode.
 
 Commands below use host-native `ansible-playbook`; for an execution environment,
 substitute the `aap_run` wrapper from
@@ -122,7 +135,9 @@ reports.
 
 ## Operator runbook
 
-1. Seed the AAP 2.5 RPM source with `bootstrap.yml` (or use existing content).
+1. As pre-verification setup, seed the AAP 2.5 RPM source with `bootstrap.yml`
+   (or use existing content). This is the only source-writing step; the
+   verification playbooks only read source content.
 2. Run `verify_smoke.yml` and curated `verify_functional.yml` against the source;
    preserve the reports.
 3. Perform the migration using the approved migration process.

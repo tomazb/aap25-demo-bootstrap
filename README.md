@@ -42,7 +42,19 @@ RHEL 8 (whose stock Python 3.6 can't run ansible-core 2.16)? See
 
 **You need:** an AAP 2.5 installation reachable over HTTPS with a platform-admin
 credential you can use temporarily; a Git repository the AAP controller can
-reach, holding a copy of this repo; and a control node with Python 3.10–3.12.
+reach, holding a copy of this repo; and a control node with Python 3.10–3.12 and
+host-native ansible-core 2.16. Install the pinned supported version and expose
+its user-installed commands before continuing:
+
+```bash
+python3 -m pip install --user ansible-core==2.16.14
+export PATH="$(python3 -m site --user-base)/bin:$PATH"
+ansible-galaxy --version
+ansible-playbook --version
+ansible-vault --version
+```
+
+Add the user-base `bin` directory to your shell profile for later shells.
 
 **1. Publish this repository.** Push the complete directory to a Git repository
 the controller can reach — the demo projects use it as their SCM source.
