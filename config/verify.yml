@@ -1,7 +1,7 @@
 ---
 # Configuration for the migration verification playbooks
-# (verify_parity.yml, verify_functional.yml). See README section
-# "Migration verification".
+# (verify_parity.yml, verify_functional.yml). See
+# docs/migration-verification.md.
 
 verify_report_dir: reports
 
